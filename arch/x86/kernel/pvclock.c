@@ -109,6 +109,11 @@ unsigned long pvclock_tsc_khz(struct pvclock_vcpu_time_info *src)
 	return pv_tsc_khz;
 }
 
+void pvclock_resume(void)
+{
+	atomic64_set(&last_value, 0);
+}
+
 cycle_t pvclock_clocksource_read(struct pvclock_vcpu_time_info *src)
 {
 	struct pvclock_shadow_time shadow;
