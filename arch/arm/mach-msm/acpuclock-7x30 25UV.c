@@ -55,7 +55,7 @@
 
 #define PLL2_L_VAL_ADDR  (MSM_CLK_CTL_BASE + 0x33c)
 
-#define ACE_ACPU_MIN_UV_MV 750U
+#define ACE_ACPU_MIN_UV_MV 700U
 #define ACE_ACPU_MAX_UV_MV 1525U
 
 struct clock_state {
