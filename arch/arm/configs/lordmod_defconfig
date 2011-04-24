@@ -1,6 +1,6 @@
 #
 # Automatically generated make config: don't edit
-# Linux kernel version: 2.6.32.39-LorDmod V4.3 CFS
+# Linux kernel version: 2.6.32.39-LorDmod V4.4 CFS
 # Thu Apr 21 14:47:56 2011
 #
 CONFIG_ARM=y
@@ -31,7 +31,7 @@ CONFIG_EXPERIMENTAL=y
 CONFIG_BROKEN_ON_SMP=y
 CONFIG_LOCK_KERNEL=y
 CONFIG_INIT_ENV_ARG_LIMIT=32
-CONFIG_LOCALVERSION="-LorDmod-V4.3CFS-normal "
+CONFIG_LOCALVERSION="-LorDmod-V4.4CFS "
 # CONFIG_LOCALVERSION_AUTO is not set
 CONFIG_HAVE_KERNEL_GZIP=y
 CONFIG_HAVE_KERNEL_BZIP2=y
