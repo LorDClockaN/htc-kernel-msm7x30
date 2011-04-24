@@ -56,7 +56,7 @@
 #define PLL2_L_VAL_ADDR  (MSM_CLK_CTL_BASE + 0x33c)
 
 #define ACE_ACPU_MIN_UV_MV 700U
-#define ACE_ACPU_MAX_UV_MV 1525U
+#define ACE_ACPU_MAX_UV_MV 1500U
 
 struct clock_state {
 	struct clkctl_acpu_speed	*current_speed;
@@ -157,7 +157,7 @@ static struct clkctl_acpu_speed acpu_freq_tbl[] = {
 	{ 1766400, PLL_2,   3, 0,  192000, 1400, VDD_RAW(1400) },
 	{ 1843200, PLL_2,   3, 0,  192000, 1425, VDD_RAW(1425) },
 	{ 1920000, PLL_2,   3, 0,  192000, 1450, VDD_RAW(1450) },
-	{ 1996800, PLL_2,   3, 0,  192000, 1450, VDD_RAW(1450) },
+	{ 1996800, PLL_2,   3, 0,  192000, 1475, VDD_RAW(1500) },
 #endif
 #endif
 	{ 0 }

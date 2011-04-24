@@ -56,7 +56,7 @@
 #define PLL2_L_VAL_ADDR  (MSM_CLK_CTL_BASE + 0x33c)
 
 #define ACE_ACPU_MIN_UV_MV 700U
-#define ACE_ACPU_MAX_UV_MV 1525U
+#define ACE_ACPU_MAX_UV_MV 1500U
 
 struct clock_state {
 	struct clkctl_acpu_speed	*current_speed;
@@ -132,10 +132,10 @@ static struct clkctl_acpu_speed acpu_freq_tbl[] = {
 	{ 122000, PLL_3,    5, 2,  61440,  875, VDD_RAW(875) },
 	{ 230400, PLL_3,    5, 1,  192000, 900, VDD_RAW(900) },
 	{ 307200, PLL_3,    5, 1,  192000, 900, VDD_RAW(900) },
-	{ 384000, PLL_1,    2, 0,  192000, 925, VDD_RAW(925) },
-	{ 460800, PLL_3,    5, 1,  192000, 950, VDD_RAW(950) },
+	{ 384000, PLL_1,    2, 0,  192000, 900, VDD_RAW(900) },
+	{ 460800, PLL_3,    5, 1,  192000, 925, VDD_RAW(925) },
 	{ 537600, PLL_2,    3, 0,  192000, 950, VDD_RAW(950) },
-	{ 614400, PLL_2,    3, 0,  192000, 975, VDD_RAW(975) },
+	{ 614400, PLL_2,    3, 0,  192000, 950, VDD_RAW(950) },
 	{ 691200, PLL_2,    3, 0,  192000, 975, VDD_RAW(975) },
 	{ 768000, PLL_2,    3, 0,  192000, 975, VDD_RAW(975) },
 	{ 844800, PLL_2,    3, 0,  192000, 1000, VDD_RAW(1000) },
@@ -157,7 +157,7 @@ static struct clkctl_acpu_speed acpu_freq_tbl[] = {
 	{ 1766400, PLL_2,   3, 0,  192000, 1400, VDD_RAW(1400) },
 	{ 1843200, PLL_2,   3, 0,  192000, 1425, VDD_RAW(1425) },
 	{ 1920000, PLL_2,   3, 0,  192000, 1450, VDD_RAW(1450) },
-	{ 1996800, PLL_2,   3, 0,  192000, 1450, VDD_RAW(1450) },
+	{ 1996800, PLL_2,   3, 0,  192000, 1475, VDD_RAW(1500) },
 #endif
 #endif
 	{ 0 }
