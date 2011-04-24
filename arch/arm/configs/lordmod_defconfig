@@ -1,6 +1,6 @@
 #
 # Automatically generated make config: don't edit
-# Linux kernel version: 2.6.32.38-LorDmod V4.3 CFS
+# Linux kernel version: 2.6.32.39-LorDmod V4.3 CFS
 # Thu Apr 21 14:47:56 2011
 #
 CONFIG_ARM=y
