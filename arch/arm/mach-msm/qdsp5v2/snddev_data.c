@@ -62,6 +62,8 @@
 #include <mach/qdsp5v2/aux_pcm.h>
 #include <mach/qdsp5v2/snddev_ecodec.h>
 #include <mach/qdsp5v2/audio_dev_ctl.h>
+#include <mach/qdsp5v2/snddev_mi2s.h>
+#include <mach/qdsp5v2/mi2s.h>
 #include <mach/board.h>
 #include <asm/mach-types.h>
 #include <asm/uaccess.h>
@@ -223,6 +225,23 @@ static struct platform_device msm_imic_device = {
 	.id = 1,
 	.dev = { .platform_data = &snddev_imic_data },
 };
+
+static struct snddev_mi2s_data snddev_mi2s_stereo_rx_data = {
+	.capability = SNDDEV_CAP_RX ,
+	.name = "hdmi_stereo_rx",
+	.copp_id = 3,
+	.acdb_id = ACDB_ID_HDMI,
+	.channel_mode = 2,
+	.sd_lines = MI2S_SD_0,
+	.default_sample_rate = 48000,
+};
+
+static struct platform_device msm_snddev_mi2s_stereo_rx_device = {
+	.name = "snddev_mi2s",
+	.id = 25,
+	.dev = { .platform_data = &snddev_mi2s_stereo_rx_data },
+};
+
 
 static struct adie_codec_action_unit ihs_stereo_rx_48KHz_osr256_actions[] =
 	HEADSET_STEREO_RX_CAPLESS_48000_OSR_256;
@@ -491,8 +510,9 @@ static struct snddev_icodec_data snddev_ifmradio_headset_data = {
 	.profile = &ifmradio_headset_profile,
 	.channel_mode = 2,
 	.default_sample_rate = 48000,
+	/* change to raise ncp power. capless need ncp bias. */
 	.pamp_on = headset_enable,
-	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
+	.vol_idx = Q5V2_HW_HEADSET
 };
 
 static struct platform_device msm_ifmradio_headset_device = {
@@ -881,6 +901,81 @@ static struct platform_device msm_ivr_mic_device = {
 	.dev = { .platform_data = &snddev_ivr_mic_data },
 };
 
+
+static struct adie_codec_action_unit ihs_vr_mic_48KHz_osr256_actions[] =
+	HEADSET_MONO_TX_48000_OSR_256;
+
+static struct adie_codec_hwsetting_entry ihs_vr_mic_settings[] = {
+	{
+		.freq_plan = 48000,
+		.osr = 256,
+		.actions = ihs_vr_mic_48KHz_osr256_actions,
+		.action_sz = ARRAY_SIZE(ihs_vr_mic_48KHz_osr256_actions),
+	}
+};
+
+static struct adie_codec_dev_profile ihs_vr_mic_profile = {
+	.path_type = ADIE_CODEC_TX,
+	.settings = ihs_vr_mic_settings,
+	.setting_sz = ARRAY_SIZE(ihs_vr_mic_settings),
+};
+
+static struct snddev_icodec_data snddev_ihs_vr_mic_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "headset_vr_tx",
+	.copp_id = 0,
+	.acdb_id = ACDB_ID_HEADSET_MIC,
+	.profile = &ihs_vr_mic_profile,
+	.channel_mode = 1,
+	.pmctl_id = NULL,
+	.pmctl_id_sz = 0,
+	.default_sample_rate = 48000,
+	.pamp_on = ext_mic_enable,
+};
+
+static struct platform_device msm_ihs_vr_mic_device = {
+	.name = "snddev_icodec",
+	.id = 26,
+	.dev = { .platform_data = &snddev_ihs_vr_mic_data },
+};
+
+static struct adie_codec_action_unit idual_mic_48KHz_osr256_actions[] =
+	DUAL_MIC_STEREO_TX_48000_OSR_256;
+
+static struct adie_codec_hwsetting_entry idual_mic_settings[] = {
+	{
+		.freq_plan = 48000,
+		.osr = 256,
+		.actions = idual_mic_48KHz_osr256_actions,
+		.action_sz = ARRAY_SIZE(idual_mic_48KHz_osr256_actions),
+	}
+};
+
+static struct adie_codec_dev_profile idual_mic_profile = {
+	.path_type = ADIE_CODEC_TX,
+	.settings = idual_mic_settings,
+	.setting_sz = ARRAY_SIZE(idual_mic_settings),
+};
+
+static struct snddev_icodec_data snddev_idual_mic_endfire_real_stereo_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "dual_mic_stereo_tx",
+	.copp_id = 0,
+	.acdb_id = 6,
+	.profile = &idual_mic_profile,
+	.channel_mode = REAL_STEREO_CHANNEL_MODE,
+	.pmctl_id = NULL,
+	.pmctl_id_sz = 0,
+	.default_sample_rate = 48000,
+	.pamp_on = int_mic_enable,
+};
+
+static struct platform_device msm_real_stereo_tx_device = {
+	.name = "snddev_icodec",
+	.id = 27,
+	.dev = { .platform_data = &snddev_idual_mic_endfire_real_stereo_data },
+};
+
 static struct platform_device *snd_devices_surf[] __initdata = {
 	&msm_iearpiece_device,
 	&msm_imic_device,
@@ -900,7 +995,10 @@ static struct platform_device *snd_devices_surf[] __initdata = {
 	&msm_iusb_headset_rx_device,
 	&msm_ihac_rx_device,
 	&msm_ialt_rx_device,
-	&msm_ivr_mic_device
+	&msm_ivr_mic_device,
+	&msm_ihs_vr_mic_device,
+	&msm_snddev_mi2s_stereo_rx_device,
+	&msm_real_stereo_tx_device
 };
 
 void htc_7x30_register_analog_ops(struct q5v2audio_analog_ops *ops)

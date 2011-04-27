@@ -1,60 +1,21 @@
 /* Copyright (c) 2009-2010, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Code Aurora Forum nor
- *       the names of its contributors may be used to endorse or promote
- *       products derived from this software without specific prior written
- *       permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * Alternatively, provided that this notice is retained in full, this software
- * may be relicensed by the recipient under the terms of the GNU General Public
- * License version 2 ("GPL") and only version 2, in which case the provisions of
- * the GPL apply INSTEAD OF those given above.  If the recipient relicenses the
- * software under the GPL, then the identification text in the MODULE_LICENSE
- * macro must be changed to reflect "GPLv2" instead of "Dual BSD/GPL".  Once a
- * recipient changes the license terms to the GPL, subsequent recipients shall
- * not relicense under alternate licensing terms, including the BSD or dual
- * BSD/GPL terms.  In addition, the following license statement immediately
- * below and between the words START and END shall also then apply when this
- * software is relicensed under the GPL:
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- * START
- *
- * This program is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License version 2 and only version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
- * details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * END
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+ * 02110-1301, USA.
  *
  */
-#include <mach/debug_audio_mm.h>
+#include <mach/debug_mm.h>
 #include <linux/module.h>
 #include <linux/miscdevice.h>
 #include <linux/kthread.h>
@@ -66,6 +27,7 @@
 #include <linux/dma-mapping.h>
 
 #include <linux/firmware.h>
+#include <linux/slab.h>
 
 #include <mach/dal.h>
 #include <mach/qdsp5v2/audio_dev_ctl.h>
@@ -160,6 +122,7 @@ static void *audio_data;
 static dma_addr_t audio_phys;
 static char acdb_file[64] = "default.acdb";
 const struct firmware *acdb_fw;
+int mbadrc_num_bands = ARRAY_SIZE(acdb_data.mbadrc_block.band_config);
 
 static int htc_acdb_init(char *filename)
 {
@@ -172,6 +135,9 @@ static int htc_acdb_init(char *filename)
 		printk("acdb: load 'default.acdb' failed...\n");
 		return -ENODEV;
 	}
+
+	if (!fw)
+		return -ENODEV;
 	db = (void*) fw->data;
 
 	if (fw->size < sizeof(struct audio_config_database)) {
@@ -413,7 +379,11 @@ s32 initialize_memory(void)
 	acdb_data.virt_addr = dma_alloc_coherent(NULL, ACDB_BUF_SIZE,
 				 &acdb_data.phys_addr, GFP_KERNEL);
 
-	memset(acdb_data.virt_addr, 0, sizeof(*acdb_data.virt_addr));
+	if (acdb_data.virt_addr == NULL) {
+	        MM_ERR("ACDB=> Could not allocate acdb buffer\n");
+	        result = -ENOMEM;
+	        goto done;
+	}
 
 	acdb_data.device_info = kmalloc(sizeof(*acdb_data.device_info),
 		GFP_KERNEL);
@@ -720,7 +690,7 @@ done:
 	return result;
 }
 
-struct acdb_iir_block *get_audpp_irr_block()
+struct acdb_iir_block *get_audpp_irr_block(void)
 {
 	struct header *prs_hdr;
 	u32 index = 0;
@@ -834,7 +804,7 @@ void get_aupp_mbadrc_block(u32 *phy_addr)
 								 + index +
 								sizeof(
 							struct header)),
-								 197*2);
+								 196*2);
 						MM_DBG("phy_addr = %x",
 							 *phy_addr);
 						index += prs_hdr->data_len +
@@ -843,6 +813,13 @@ void get_aupp_mbadrc_block(u32 *phy_addr)
 						 == IID_MBADRC_BAND_CONFIG) {
 						MM_DBG("Got IID \
 						== IID_MBADRC_BAND_CONFIG\n");
+						if (acdb_data. \
+							mbadrc_block.parameters\
+							.mbadrc_num_bands > mbadrc_num_bands) {
+							MM_ERR("mbadrc bands number\
+								too much.");
+							return;
+						}
 						memcpy(acdb_data. \
 						mbadrc_block.band_config,
 							(acdb_data. \
@@ -936,6 +913,10 @@ s32 acdb_fill_audpp_mbadrc(void)
 						 & 0xFFFF);
 	acdb_data.pp_mbadrc->ext_buf_msw = (u16)((mbadrc_phys_addr\
 						 & 0xFFFF0000) >> 16);
+	if (acdb_data.mbadrc_block.parameters.mbadrc_num_bands > mbadrc_num_bands) {
+		MM_ERR("mbadrc bands number too much.");
+		return -1;
+	}
 	memcpy(acdb_data.pp_mbadrc->adrc_band, acdb_data.mbadrc_block.\
 					band_config,
 		sizeof(struct mbadrc_band_config_type) *
@@ -981,7 +962,7 @@ done:
 	return result;
 }
 
-struct acdb_agc_block *get_audpreproc_agc_block()
+struct acdb_agc_block *get_audpreproc_agc_block(void)
 {
 	struct header *prs_hdr;
 	u32 index = 0;
@@ -1076,7 +1057,7 @@ s32 acdb_fill_audpreproc_agc(void)
 	return 0;
 }
 
-struct acdb_iir_block *get_audpreproc_irr_block()
+struct acdb_iir_block *get_audpreproc_irr_block(void)
 {
 
 	struct header *prs_hdr;

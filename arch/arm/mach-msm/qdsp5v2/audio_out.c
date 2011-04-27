@@ -15,7 +15,7 @@
  * GNU General Public License for more details.
  *
  */
-#include <mach/debug_audio_mm.h>
+#include <linux/version.h>
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
@@ -39,6 +39,7 @@
 #include <mach/qdsp5v2/audio_dev_ctl.h>
 
 #include <mach/htc_pwrsink.h>
+#include <mach/debug_mm.h>
 
 #define BUFSZ (960 * 5)
 #define DMASZ (BUFSZ * 2)
@@ -248,7 +249,7 @@ static void audio_dsp_event(void *private, unsigned id, uint16_t *msg)
 		break;
 	case AUDPP_MSG_CFG_MSG:
 		if (msg[0] == AUDPP_MSG_ENA_ENA) {
-			MM_INFO("CFG_MSG ENABLE\n");
+			MM_DBG("CFG_MSG ENABLE\n");
 			audio->out_needed = 0;
 			audio->running = 1;
 			audpp_dsp_set_vol_pan(audio->dec_id, &audio->vol_pan,
@@ -256,7 +257,7 @@ static void audio_dsp_event(void *private, unsigned id, uint16_t *msg)
 			audpp_route_stream(audio->dec_id, audio->source);
 			audio_dsp_out_enable(audio, 1);
 		} else if (msg[0] == AUDPP_MSG_ENA_DIS) {
-			MM_INFO("CFG_MSG DISABLE\n");
+			MM_DBG("CFG_MSG DISABLE\n");
 			audio->running = 0;
 		} else {
 			MM_ERR("CFG_MSG %d?\n", msg[0]);
@@ -437,8 +438,13 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 }
 
 /* Only useful in tunnel-mode */
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 34))
+static int audio_fsync(struct file *file, int datasync)
+#else
 static int audio_fsync(struct file *file, struct dentry *dentry,
 			int datasync)
+#endif
+
 {
 	struct audio *audio = file->private_data;
 	int rc = 0;
@@ -502,10 +508,12 @@ static ssize_t audio_write(struct file *file, const char __user *buf,
 	/* just for this write, set us real-time */
 	if (!task_has_rt_policy(current)) {
 		struct cred *new = prepare_creds();
-		cap_raise(new->cap_effective, CAP_SYS_NICE);
-		commit_creds(new);
-		if ((sched_setscheduler(current, SCHED_RR, &s)) < 0)
-			MM_ERR("sched_setscheduler failed\n");
+		if (new != NULL) {
+			cap_raise(new->cap_effective, CAP_SYS_NICE);
+			commit_creds(new);
+			if ((sched_setscheduler(current, SCHED_RR, &s)) < 0)
+				MM_ERR("sched_setscheduler failed\n");
+		}
 	}
 
 	mutex_lock(&audio->write_lock);
@@ -556,8 +564,10 @@ static ssize_t audio_write(struct file *file, const char __user *buf,
 			MM_ERR("sched_setscheduler failed\n");
 		if (likely(!cap_nice)) {
 			struct cred *new = prepare_creds();
-			cap_lower(new->cap_effective, CAP_SYS_NICE);
-			commit_creds(new);
+			if (new != NULL) {
+				cap_lower(new->cap_effective, CAP_SYS_NICE);
+				commit_creds(new);
+			}
 		}
 	}
 
@@ -629,7 +639,7 @@ static int audio_open(struct inode *inode, struct file *file)
 				|AUDDEV_EVT_DEV_RLS|
 				AUDDEV_EVT_STREAM_VOL_CHG;
 
-	MM_INFO("register for event callback pdata %p\n", audio);
+	MM_DBG("register for event callback pdata %p\n", audio);
 	rc = auddev_register_evt_listner(audio->device_events,
 					AUDDEV_CLNT_DEC,
 					audio->dec_id,

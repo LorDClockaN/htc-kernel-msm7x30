@@ -1,61 +1,21 @@
 /* Copyright (c) 2009-2010, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Code Aurora Forum nor
- *       the names of its contributors may be used to endorse or promote
- *       products derived from this software without specific prior written
- *       permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * Alternatively, provided that this notice is retained in full, this software
- * may be relicensed by the recipient under the terms of the GNU General Public
- * License version 2 ("GPL") and only version 2, in which case the provisions of
- * the GPL apply INSTEAD OF those given above.  If the recipient relicenses the
- * software under the GPL, then the identification text in the MODULE_LICENSE
- * macro must be changed to reflect "GPLv2" instead of "Dual BSD/GPL".  Once a
- * recipient changes the license terms to the GPL, subsequent recipients shall
- * not relicense under alternate licensing terms, including the BSD or dual
- * BSD/GPL terms.  In addition, the following license statement immediately
- * below and between the words START and END shall also then apply when this
- * software is relicensed under the GPL:
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- * START
- *
- * This program is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License version 2 and only version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
- * details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * END
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+ * 02110-1301, USA.
  *
  */
 
-#include <mach/debug_audio_mm.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/miscdevice.h>
@@ -71,7 +31,7 @@
 #include <linux/wait.h>
 #include <mach/qdsp5v2/voice.h>
 #include <mach/qdsp5v2/audio_def.h>
-#include <mach/debug_audio_mm.h>
+#include <mach/debug_mm.h>
 
 struct voice_data {
 	void *handle; /* DALRPC handle */
@@ -198,7 +158,7 @@ static void voice_auddev_cb_function(u32 evt_id,
 			void *private_data)
 {
 	struct voice_data *v = &voice;
-	int rc = 0;
+	int rc = 0, mute=0;
 
 	MM_INFO("auddev_cb_function, evt_id = %d, dev_state = %d\n",
 		evt_id, v->dev_state);
@@ -344,12 +304,16 @@ static void voice_auddev_cb_function(u32 evt_id,
 			v->dev_tx.mute =
 				evt_payload->voc_vm_info.dev_vm_val.mute;
 		else {
-			if (evt_payload->voc_vm_info.dev_vm_val.vol < 0)
+			mute = (int)evt_payload->voc_vm_info.dev_vm_val.mute;
+			pr_info("%s, mute = %d\n", __func__, mute);
+			if (mute == 1) { /*mute rx*/
 				v->dev_rx.mute = evt_payload->
 					voc_vm_info.dev_vm_val.mute;
-			else
+			} else {
+				v->dev_rx.mute = 0;
 				v->dev_rx.volume = evt_payload->
 					voc_vm_info.dev_vm_val.vol;
+			}
 		}
 		/* send device info */
 		voice_cmd_device_info(v);
@@ -723,8 +687,6 @@ static int voice_thread(void *data)
 						rc = voice_cmd_device_info(v);
 						rc = voice_cmd_acquire_done(v);
 						v->voc_state = VOICE_ACQUIRE;
-                                                broadcast_event(AUDDEV_EVT_VOICE_STATE_CHG,
-                                                        VOICE_STATE_INCALL, SESSION_IGNORE);
 						pr_info("voc_state -> VOICE_ACQUIRE\n");
 					} else {
 						pr_info("start waiting for "
@@ -733,21 +695,18 @@ static int voice_thread(void *data)
 							v->dev_wait,
 							(v->dev_state == DEV_READY)
 							|| (atomic_read(&v->rel_start_flag) == 1));
-						if (atomic_read(&v->rel_start_flag) == 1) {
+						if (atomic_read(&v->rel_start_flag)
+							== 1) {
 							v->voc_state = VOICE_RELEASE;
 							pr_info("voc_state -> VOICE_RELEASE\n");
 							atomic_dec(&v->rel_start_flag);
 							msm_snddev_withdraw_freq(0,
 								SNDDEV_CAP_TX, AUDDEV_CLNT_VOC);
-                                                        broadcast_event(AUDDEV_EVT_VOICE_STATE_CHG,
-                                                                VOICE_STATE_OFFCALL, SESSION_IGNORE);
 						} else {
 							voice_change_sample_rate(v);
 							rc = voice_cmd_device_info(v);
 							rc = voice_cmd_acquire_done(v);
 							v->voc_state = VOICE_ACQUIRE;
-                                                        broadcast_event(AUDDEV_EVT_VOICE_STATE_CHG,
-                                                                VOICE_STATE_INCALL, SESSION_IGNORE);
 							pr_info("voc_state -> VOICE_ACQUIRE\n");
 						}
 					}
@@ -769,9 +728,8 @@ static int voice_thread(void *data)
 					(v->dev_state == DEV_INIT)) {
 					v->voc_state = VOICE_RELEASE;
 					pr_info("voc_state -> VOICE_RELEASE\n");
-					msm_snddev_withdraw_freq(0, SNDDEV_CAP_TX, AUDDEV_CLNT_VOC);
-                                        broadcast_event(AUDDEV_EVT_VOICE_STATE_CHG,
-                                                VOICE_STATE_OFFCALL,SESSION_IGNORE);
+					msm_snddev_withdraw_freq(0, SNDDEV_CAP_TX,
+						AUDDEV_CLNT_VOC);
 				} else {
 					/* wait for the dev_state = RELEASE */
 					pr_info("start waiting for "
@@ -785,9 +743,8 @@ static int voice_thread(void *data)
 						rc = voice_cmd_release_done(v);
 					v->voc_state = VOICE_RELEASE;
 					pr_info("voc_state -> VOICE_RELEASE\n");
-					msm_snddev_withdraw_freq(0, SNDDEV_CAP_TX, AUDDEV_CLNT_VOC);
-                                        broadcast_event(AUDDEV_EVT_VOICE_STATE_CHG,
-                                                VOICE_STATE_OFFCALL,SESSION_IGNORE);
+					msm_snddev_withdraw_freq(0, SNDDEV_CAP_TX,
+						AUDDEV_CLNT_VOC);
 				}
 				if (atomic_read(&v->rel_start_flag))
 					atomic_dec(&v->rel_start_flag);
@@ -832,8 +789,6 @@ static int voice_thread(void *data)
 				/* update voice state */
 				v->voc_state = VOICE_ACQUIRE;
 				pr_info("voc_state -> VOICE_ACQUIRE\n");
-                                broadcast_event(AUDDEV_EVT_VOICE_STATE_CHG,
-                                        VOICE_STATE_INCALL, SESSION_IGNORE);
 			} else {
 				MM_ERR("Get DEV_CHANGE_READY "
 					"at the wrong voc_state %d\n", v->voc_state);

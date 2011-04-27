@@ -1,5 +1,5 @@
 /*
- * amrnb audio input device
+ * qcelp audio input device
  *
  * Copyright (C) 2008 Google, Inc.
  * Copyright (C) 2008 HTC Corporation
@@ -24,7 +24,7 @@
 #include <linux/wait.h>
 #include <linux/dma-mapping.h>
 #include <linux/msm_audio_7X30.h>
-#include <linux/msm_audio_amrnb.h>
+#include <linux/msm_audio_qcp.h>
 
 #include <asm/atomic.h>
 #include <asm/ioctls.h>
@@ -67,9 +67,8 @@ struct audio_in {
 	uint32_t buffer_size; /* Frame size (36 bytes) */
 	uint32_t enc_type;
 
-	int dtx_mode;
-	uint32_t frame_format;
-	uint32_t used_mode;
+
+	struct msm_audio_qcelp_enc_config cfg;
 	uint32_t rec_mode;
 
 	uint32_t dsp_cnt;
@@ -116,20 +115,21 @@ struct audio_frame {
 	msm_adsp_write(audio->audrec, (audio->queue_ids & 0x0000FFFF),\
 			cmd, len)
 
-struct audio_in the_audio_amrnb_in;
+
+static struct audio_in the_audio_qcelp_in;
 
 /* DSP command send functions */
-static int audamrnb_in_enc_config(struct audio_in *audio, int enable);
-static int audamrnb_in_param_config(struct audio_in *audio);
-static int audamrnb_in_mem_config(struct audio_in *audio);
-static int audamrnb_in_record_config(struct audio_in *audio, int enable);
-static int audamrnb_dsp_read_buffer(struct audio_in *audio, uint32_t read_cnt);
+static int audqcelp_in_enc_config(struct audio_in *audio, int enable);
+static int audqcelp_in_param_config(struct audio_in *audio);
+static int audqcelp_in_mem_config(struct audio_in *audio);
+static int audqcelp_in_record_config(struct audio_in *audio, int enable);
+static int audqcelp_dsp_read_buffer(struct audio_in *audio, uint32_t read_cnt);
 
-static void audamrnb_in_get_dsp_frames(struct audio_in *audio);
+static void audqcelp_in_get_dsp_frames(struct audio_in *audio);
 
-static void audamrnb_in_flush(struct audio_in *audio);
+static void audqcelp_in_flush(struct audio_in *audio);
 
-static void amrnb_in_listener(u32 evt_id, union auddev_evt_data *evt_payload,
+static void qcelp_in_listener(u32 evt_id, union auddev_evt_data *evt_payload,
 				void *private_data)
 {
 	struct audio_in *audio = (struct audio_in *) private_data;
@@ -146,7 +146,7 @@ static void amrnb_in_listener(u32 evt_id, union auddev_evt_data *evt_payload,
 		spin_unlock_irqrestore(&audio->dev_lock, flags);
 
 		if ((audio->running == 1) && (audio->enabled == 1))
-			audamrnb_in_record_config(audio, 1);
+			audqcelp_in_record_config(audio, 1);
 
 		break;
 	}
@@ -163,10 +163,10 @@ static void amrnb_in_listener(u32 evt_id, union auddev_evt_data *evt_payload,
 
 		/* Turn of as per source */
 		if (audio->source)
-			audamrnb_in_record_config(audio, 1);
+			audqcelp_in_record_config(audio, 1);
 		else
 			/* Turn off all */
-			audamrnb_in_record_config(audio, 0);
+			audqcelp_in_record_config(audio, 0);
 
 		break;
 	}
@@ -176,9 +176,9 @@ static void amrnb_in_listener(u32 evt_id, union auddev_evt_data *evt_payload,
 		audio->voice_state = evt_payload->voice_state;
 		if (audio->in_call && audio->running) {
 			if (audio->voice_state == VOICE_STATE_INCALL)
-				audamrnb_in_record_config(audio, 1);
+				audqcelp_in_record_config(audio, 1);
 			else if (audio->voice_state == VOICE_STATE_OFFCALL) {
-				audamrnb_in_record_config(audio, 0);
+				audqcelp_in_record_config(audio, 0);
 				wake_up(&audio->wait);
 			}
 		}
@@ -218,16 +218,16 @@ static void audpreproc_dsp_event(void *data, unsigned id,  void *msg)
 			enc_cfg_msg->rec_enc_type);
 		/* Encoder enable success */
 		if (enc_cfg_msg->rec_enc_type & ENCODE_ENABLE)
-			audamrnb_in_param_config(audio);
+			audqcelp_in_param_config(audio);
 		else { /* Encoder disable success */
 			audio->running = 0;
-			audamrnb_in_record_config(audio, 0);
+			audqcelp_in_record_config(audio, 0);
 		}
 		break;
 	}
 	case AUDPREPROC_CMD_ENC_PARAM_CFG_DONE_MSG: {
 		MM_DBG("CMD_ENC_PARAM_CFG_DONE_MSG \n");
-		audamrnb_in_mem_config(audio);
+		audqcelp_in_mem_config(audio);
 		break;
 	}
 	case AUDPREPROC_AFE_CMD_AUDIO_RECORD_CFG_DONE_MSG: {
@@ -253,7 +253,7 @@ static void audrec_dsp_event(void *data, unsigned id, size_t len,
 		if ((!audio->in_call && (audio->dev_cnt > 0)) ||
 			(audio->in_call &&
 				(audio->voice_state == VOICE_STATE_INCALL)))
-			audamrnb_in_record_config(audio, 1);
+			audqcelp_in_record_config(audio, 1);
 		break;
 	}
 	case AUDREC_FATAL_ERR_MSG: {
@@ -278,7 +278,7 @@ static void audrec_dsp_event(void *data, unsigned id, size_t len,
 		pkt_ready_msg.audrec_up_prev_read_cnt_lsw, \
 		pkt_ready_msg.audrec_up_prev_read_cnt_msw);
 
-		audamrnb_in_get_dsp_frames(audio);
+		audqcelp_in_get_dsp_frames(audio);
 		break;
 	}
 	default:
@@ -286,7 +286,7 @@ static void audrec_dsp_event(void *data, unsigned id, size_t len,
 	}
 }
 
-static void audamrnb_in_get_dsp_frames(struct audio_in *audio)
+static void audqcelp_in_get_dsp_frames(struct audio_in *audio)
 {
 	struct audio_frame *frame;
 	uint32_t index;
@@ -307,21 +307,22 @@ static void audamrnb_in_get_dsp_frames(struct audio_in *audio)
 	audio->in_head = (audio->in_head + 1) & (FRAME_NUM - 1);
 
 	/* If overflow, move the tail index foward. */
-	if (audio->in_head == audio->in_tail)
+	if (audio->in_head == audio->in_tail) {
 		audio->in_tail = (audio->in_tail + 1) & (FRAME_NUM - 1);
-	else
+		MM_DBG("in_count %d\n", audio->in_count);
+	}	else
 		audio->in_count++;
 
-	audamrnb_dsp_read_buffer(audio, audio->dsp_cnt++);
+	audqcelp_dsp_read_buffer(audio, audio->dsp_cnt++);
 	spin_unlock_irqrestore(&audio->dsp_lock, flags);
 
 	wake_up(&audio->wait);
 }
-struct msm_adsp_ops audrec_amrnb_adsp_ops = {
+struct msm_adsp_ops audrec_qcelp_adsp_ops = {
 	.event = audrec_dsp_event,
 };
 
-static int audamrnb_in_enc_config(struct audio_in *audio, int enable)
+static int audqcelp_in_enc_config(struct audio_in *audio, int enable)
 {
 	struct audpreproc_audrec_cmd_enc_cfg cmd;
 
@@ -337,23 +338,24 @@ static int audamrnb_in_enc_config(struct audio_in *audio, int enable)
 	return audpreproc_send_audreccmdqueue(&cmd, sizeof(cmd));
 }
 
-static int audamrnb_in_param_config(struct audio_in *audio)
+static int audqcelp_in_param_config(struct audio_in *audio)
 {
-	struct audpreproc_audrec_cmd_parm_cfg_amrnb cmd;
+	struct audpreproc_audrec_cmd_parm_cfg_qcelp13k cmd;
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.common.cmd_id = AUDPREPROC_AUDREC_CMD_PARAM_CFG;
 	cmd.common.stream_id = audio->enc_id;
 
-	cmd.dtx_mode = audio->dtx_mode;
-	cmd.test_mode = -1; /* Default set to -1 */
-	cmd.used_mode = audio->used_mode;
+	cmd.enc_min_rate = audio->cfg.min_bit_rate;
+	cmd.enc_max_rate = audio->cfg.max_bit_rate;
+	cmd.rate_modulation_cmd = 0;  /* Default set to 0 */
+	cmd.reduced_rate_level = 0;  /* Default set to 0 */
 
 	return audpreproc_send_audreccmdqueue(&cmd, sizeof(cmd));
 }
 
 /* To Do: msm_snddev_route_enc(audio->enc_id); */
-static int audamrnb_in_record_config(struct audio_in *audio, int enable)
+static int audqcelp_in_record_config(struct audio_in *audio, int enable)
 {
 	struct audpreproc_afe_cmd_audio_record_cfg cmd;
 
@@ -378,11 +380,10 @@ static int audamrnb_in_record_config(struct audio_in *audio, int enable)
 				AUDPP_A2DP_PIPE_SOURCE_MIX_MASK)
 			cmd.pipe_id |= SOURCE_PIPE_0;
 	}
-
 	return audpreproc_send_audreccmdqueue(&cmd, sizeof(cmd));
 }
 
-static int audamrnb_in_mem_config(struct audio_in *audio)
+static int audqcelp_in_mem_config(struct audio_in *audio)
 {
 	struct audrec_cmd_arecmem_cfg cmd;
 	uint16_t *data = (void *) audio->data;
@@ -396,7 +397,7 @@ static int audamrnb_in_mem_config(struct audio_in *audio)
 	cmd.audrec_ext_pkt_buf_number = FRAME_NUM;
 
 	/* prepare buffer pointers:
-	 * 36 bytes amrnb packet + 4 halfword header
+	 * 36 bytes qcelp packet + 4 halfword header
 	 */
 	for (n = 0; n < FRAME_NUM; n++) {
 		audio->in[n].data = data + 4;
@@ -407,7 +408,7 @@ static int audamrnb_in_mem_config(struct audio_in *audio)
 	return audrec_send_audrecqueue(audio, &cmd, sizeof(cmd));
 }
 
-static int audamrnb_dsp_read_buffer(struct audio_in *audio, uint32_t read_cnt)
+static int audqcelp_dsp_read_buffer(struct audio_in *audio, uint32_t read_cnt)
 {
 	struct up_audrec_packet_ext_ptr cmd;
 
@@ -420,7 +421,7 @@ static int audamrnb_dsp_read_buffer(struct audio_in *audio, uint32_t read_cnt)
 }
 
 /* must be called with audio->lock held */
-static int audamrnb_in_enable(struct audio_in *audio)
+static int audqcelp_in_enable(struct audio_in *audio)
 {
 	if (audio->enabled)
 		return 0;
@@ -436,17 +437,17 @@ static int audamrnb_in_enable(struct audio_in *audio)
 		return -ENODEV;
 	}
 	audio->enabled = 1;
-	audamrnb_in_enc_config(audio, 1);
+	audqcelp_in_enc_config(audio, 1);
 
 	return 0;
 }
 
 /* must be called with audio->lock held */
-static int audamrnb_in_disable(struct audio_in *audio)
+static int audqcelp_in_disable(struct audio_in *audio)
 {
 	if (audio->enabled) {
 		audio->enabled = 0;
-		audamrnb_in_enc_config(audio, 0);
+		audqcelp_in_enc_config(audio, 0);
 		wake_up(&audio->wait);
 		wait_event_interruptible_timeout(audio->wait_enable,
 				audio->running == 0, 1*HZ);
@@ -456,7 +457,7 @@ static int audamrnb_in_disable(struct audio_in *audio)
 	return 0;
 }
 
-static void audamrnb_in_flush(struct audio_in *audio)
+static void audqcelp_in_flush(struct audio_in *audio)
 {
 	int i;
 
@@ -475,7 +476,7 @@ static void audamrnb_in_flush(struct audio_in *audio)
 }
 
 /* ------------------- device --------------------- */
-static long audamrnb_in_ioctl(struct file *file,
+static long audqcelp_in_ioctl(struct file *file,
 				unsigned int cmd, unsigned long arg)
 {
 	struct audio_in *audio = file->private_data;
@@ -512,7 +513,7 @@ static long audamrnb_in_ioctl(struct file *file,
 			MM_DBG("msm_snddev_withdraw_freq\n");
 			break;
 		}
-		rc = audamrnb_in_enable(audio);
+		rc = audqcelp_in_enable(audio);
 		if (!rc) {
 			rc =
 			wait_event_interruptible_timeout(audio->wait_enable,
@@ -528,7 +529,7 @@ static long audamrnb_in_ioctl(struct file *file,
 		break;
 	}
 	case AUDIO_STOP: {
-		rc = audamrnb_in_disable(audio);
+		rc = audqcelp_in_disable(audio);
 		rc = msm_snddev_withdraw_freq(audio->enc_id,
 					SNDDEV_CAP_TX, AUDDEV_CLNT_ENC);
 		MM_DBG("msm_snddev_withdraw_freq\n");
@@ -544,7 +545,7 @@ static long audamrnb_in_ioctl(struct file *file,
 			 */
 			wake_up(&audio->wait);
 			mutex_lock(&audio->read_lock);
-			audamrnb_in_flush(audio);
+			audqcelp_in_flush(audio);
 			mutex_unlock(&audio->read_lock);
 		}
 		break;
@@ -571,36 +572,39 @@ static long audamrnb_in_ioctl(struct file *file,
 			rc = -EFAULT;
 		break;
 	}
-	case AUDIO_GET_AMRNB_ENC_CONFIG_V2: {
-		struct msm_audio_amrnb_enc_config_v2 cfg;
-		memset(&cfg, 0, sizeof(cfg));
-		cfg.dtx_enable = ((audio->dtx_mode == -1) ? 1 : 0);
-		cfg.band_mode = audio->used_mode;
-		cfg.frame_format = audio->frame_format;
-		if (copy_to_user((void *) arg, &cfg, sizeof(cfg)))
+	case AUDIO_GET_QCELP_ENC_CONFIG: {
+		if (copy_to_user((void *) arg, &audio->cfg, sizeof(audio->cfg)))
 			rc = -EFAULT;
 		break;
 	}
-	case AUDIO_SET_AMRNB_ENC_CONFIG_V2: {
-		struct msm_audio_amrnb_enc_config_v2 cfg;
+	case AUDIO_SET_QCELP_ENC_CONFIG: {
+		struct msm_audio_qcelp_enc_config cfg;
 		if (copy_from_user(&cfg, (void *) arg, sizeof(cfg))) {
 			rc = -EFAULT;
 			break;
 		}
-		/* DSP does not support any other than default format */
-		if (audio->frame_format != cfg.frame_format) {
-			rc = -EINVAL;
+		MM_DBG("0X%8x, 0x%8x, 0x%8x\n", cfg.min_bit_rate, \
+				cfg.max_bit_rate, cfg.cdma_rate);
+		if (cfg.min_bit_rate > CDMA_RATE_FULL || \
+				cfg.min_bit_rate < CDMA_RATE_EIGHTH) {
+			MM_ERR("invalid min bitrate\n");
+			rc = -EFAULT;
 			break;
 		}
-		if (cfg.dtx_enable == 0)
-			audio->dtx_mode = 0;
-		else if (cfg.dtx_enable == 1)
-			audio->dtx_mode = -1;
-		else {
-			rc = -EINVAL;
+		if (cfg.max_bit_rate > CDMA_RATE_FULL || \
+				cfg.max_bit_rate < CDMA_RATE_EIGHTH) {
+			MM_ERR("invalid max bitrate\n");
+			rc = -EFAULT;
 			break;
 		}
-		audio->used_mode = cfg.band_mode;
+		/* Recording Does not support Erase and Blank */
+		if (cfg.cdma_rate > CDMA_RATE_FULL ||
+			cfg.cdma_rate < CDMA_RATE_EIGHTH) {
+			MM_ERR("invalid qcelp cdma rate\n");
+			rc = -EFAULT;
+			break;
+		}
+		memcpy(&audio->cfg, &cfg, sizeof(cfg));
 		break;
 	}
 	case AUDIO_SET_INCALL: {
@@ -644,7 +648,7 @@ static long audamrnb_in_ioctl(struct file *file,
 	return rc;
 }
 
-static ssize_t audamrnb_in_read(struct file *file,
+static ssize_t audqcelp_in_read(struct file *file,
 				char __user *buf,
 				size_t count, loff_t *pos)
 {
@@ -664,7 +668,6 @@ static ssize_t audamrnb_in_read(struct file *file,
 				(audio->voice_state == VOICE_STATE_OFFCALL)));
 		if (rc < 0)
 			break;
-
 		if (!audio->in_count) {
 			if (audio->stopped)  {
 				rc = 0;/* End of File */
@@ -711,14 +714,14 @@ static ssize_t audamrnb_in_read(struct file *file,
 	return rc;
 }
 
-static ssize_t audamrnb_in_write(struct file *file,
+static ssize_t audqcelp_in_write(struct file *file,
 				const char __user *buf,
 				size_t count, loff_t *pos)
 {
 	return -EINVAL;
 }
 
-static int audamrnb_in_release(struct inode *inode, struct file *file)
+static int audqcelp_in_release(struct inode *inode, struct file *file)
 {
 	struct audio_in *audio = file->private_data;
 
@@ -730,8 +733,8 @@ static int audamrnb_in_release(struct inode *inode, struct file *file)
 	msm_snddev_withdraw_freq(audio->enc_id, SNDDEV_CAP_TX,
 					AUDDEV_CLNT_ENC);
 	auddev_unregister_evt_listner(AUDDEV_CLNT_ENC, audio->enc_id);
-	audamrnb_in_disable(audio);
-	audamrnb_in_flush(audio);
+	audqcelp_in_disable(audio);
+	audqcelp_in_flush(audio);
 	msm_adsp_put(audio->audrec);
 	audpreproc_aenc_free(audio->enc_id);
 	audio->audrec = NULL;
@@ -740,12 +743,13 @@ static int audamrnb_in_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static int audamrnb_in_open(struct inode *inode, struct file *file)
+static int audqcelp_in_open(struct inode *inode, struct file *file)
 {
-	struct audio_in *audio = &the_audio_amrnb_in;
+	struct audio_in *audio = &the_audio_qcelp_in;
 	int rc;
 	int encid;
 
+	MM_DBG("\n");
 	mutex_lock(&audio->lock);
 	if (audio->opened) {
 		rc = -EBUSY;
@@ -765,15 +769,16 @@ static int audamrnb_in_open(struct inode *inode, struct file *file)
 		goto done;
 	}
 
-
 	/* Settings will be re-config at AUDIO_SET_CONFIG,
 	 * but at least we need to have initial config
 	 */
 	audio->buffer_size = (FRAME_SIZE - 8);
-	audio->enc_type = ENC_TYPE_AMRNB | audio->mode;
-	audio->dtx_mode = -1;
-	audio->frame_format = 0;
-	audio->used_mode = 7; /* Bit Rate 12.2 kbps MR122 */
+	audio->enc_type = ENC_TYPE_V13K | audio->mode;
+	audio->cfg.cdma_rate = CDMA_RATE_FULL;
+	audio->cfg.min_bit_rate = CDMA_RATE_FULL;
+	audio->cfg.max_bit_rate = CDMA_RATE_FULL;
+	audio->source = INTERNAL_CODEC_TX_SOURCE_MIX_MASK;
+	audio->rec_mode = VOC_REC_UPLINK;
 
 	encid = audpreproc_aenc_alloc(audio->enc_type, &audio->module_name,
 			&audio->queue_ids);
@@ -785,7 +790,7 @@ static int audamrnb_in_open(struct inode *inode, struct file *file)
 	audio->enc_id = encid;
 
 	rc = msm_adsp_get(audio->module_name, &audio->audrec,
-			   &audrec_amrnb_adsp_ops, audio);
+			   &audrec_qcelp_adsp_ops, audio);
 
 	if (rc) {
 		audpreproc_aenc_free(audio->enc_id);
@@ -795,7 +800,7 @@ static int audamrnb_in_open(struct inode *inode, struct file *file)
 	audio->stopped = 0;
 	audio->source = 0;
 
-	audamrnb_in_flush(audio);
+	audqcelp_in_flush(audio);
 
 	audio->device_events = AUDDEV_EVT_DEV_RDY | AUDDEV_EVT_DEV_RLS |
 				AUDDEV_EVT_VOICE_STATE_CHG;
@@ -803,7 +808,7 @@ static int audamrnb_in_open(struct inode *inode, struct file *file)
 	audio->voice_state = VOICE_STATE_INCALL;
 	rc = auddev_register_evt_listner(audio->device_events,
 					AUDDEV_CLNT_ENC, audio->enc_id,
-					amrnb_in_listener, (void *) audio);
+					qcelp_in_listener, (void *) audio);
 	if (rc) {
 		MM_ERR("failed to register device event listener\n");
 		goto evt_error;
@@ -822,37 +827,37 @@ evt_error:
 
 static const struct file_operations audio_in_fops = {
 	.owner		= THIS_MODULE,
-	.open		= audamrnb_in_open,
-	.release	= audamrnb_in_release,
-	.read		= audamrnb_in_read,
-	.write		= audamrnb_in_write,
-	.unlocked_ioctl	= audamrnb_in_ioctl,
+	.open		= audqcelp_in_open,
+	.release	= audqcelp_in_release,
+	.read		= audqcelp_in_read,
+	.write		= audqcelp_in_write,
+	.unlocked_ioctl	= audqcelp_in_ioctl,
 };
 
-struct miscdevice audio_amrnb_in_misc = {
+struct miscdevice audio_qcelp_in_misc = {
 	.minor	= MISC_DYNAMIC_MINOR,
-	.name	= "msm_amrnb_in",
+	.name	= "msm_qcelp_in",
 	.fops	= &audio_in_fops,
 };
 
-static int __init audamrnb_in_init(void)
+static int __init audqcelp_in_init(void)
 {
-	the_audio_amrnb_in.data = dma_alloc_coherent(NULL, DMASZ,
-				       &the_audio_amrnb_in.phys, GFP_KERNEL);
-	MM_DBG("Memory addr = 0x%8x  Phy addr= 0x%8x ---- \n", \
-		(int) the_audio_amrnb_in.data, (int) the_audio_amrnb_in.phys);
+	the_audio_qcelp_in.data = dma_alloc_coherent(NULL, DMASZ,
+				       &the_audio_qcelp_in.phys, GFP_KERNEL);
+	MM_DBG("Memory addr = 0x%8x  Phy addr = 0x%8x ---- \n", \
+		(int) the_audio_qcelp_in.data, (int) the_audio_qcelp_in.phys);
 
-	if (!the_audio_amrnb_in.data) {
+	if (!the_audio_qcelp_in.data) {
 		MM_ERR("Unable to allocate DMA buffer\n");
 		return -ENOMEM;
 	}
-	mutex_init(&the_audio_amrnb_in.lock);
-	mutex_init(&the_audio_amrnb_in.read_lock);
-	spin_lock_init(&the_audio_amrnb_in.dsp_lock);
-	spin_lock_init(&the_audio_amrnb_in.dev_lock);
-	init_waitqueue_head(&the_audio_amrnb_in.wait);
-	init_waitqueue_head(&the_audio_amrnb_in.wait_enable);
-	return misc_register(&audio_amrnb_in_misc);
+	mutex_init(&the_audio_qcelp_in.lock);
+	mutex_init(&the_audio_qcelp_in.read_lock);
+	spin_lock_init(&the_audio_qcelp_in.dsp_lock);
+	spin_lock_init(&the_audio_qcelp_in.dev_lock);
+	init_waitqueue_head(&the_audio_qcelp_in.wait);
+	init_waitqueue_head(&the_audio_qcelp_in.wait_enable);
+	return misc_register(&audio_qcelp_in_misc);
 }
 
-device_initcall(audamrnb_in_init);
+device_initcall(audqcelp_in_init);

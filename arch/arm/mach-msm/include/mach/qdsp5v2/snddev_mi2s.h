@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010, Code Aurora Forum. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -26,55 +26,26 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  */
-#ifndef __MACH_QDSP5_V2_SNDDEV_ICODEC_H
-#define __MACH_QDSP5_V2_SNDDEV_ICODEC_H
-#include <mach/qdsp5v2/adie_marimba.h>
-#include <mach/qdsp5v2/audio_def.h>
-#include <../pmic.h>
+#ifndef __MACH_QDSP5_V2_SNDDEV_MI2S_H
+#define __MACH_QDSP5_V2_SNDDEV_MI2S_H
 
-/* Context for each internal codec sound device */
-struct snddev_icodec_state {
-    struct snddev_icodec_data *data;
-    struct adie_codec_path *adie_path;
-    u32 sample_rate;
-    u32 enabled;
-};
-
-struct snddev_icodec_data {
+struct snddev_mi2s_data {
 	u32 capability; /* RX or TX */
 	const char *name;
 	u32 copp_id; /* audpp routing */
 	u32 acdb_id; /* Audio Cal purpose */
-	/* Adie profile */
-	struct adie_codec_dev_profile *profile;
-	/* Afe setting */
 	u8 channel_mode;
-	enum hsed_controller *pmctl_id; /* tx only enable mic bias */
-	u32 pmctl_id_sz;
+	u8 sd_lines;
+	void (*route) (void);
+	void (*deroute) (void);
 	u32 default_sample_rate;
-	void (*pamp_on) (int on);
-	u32 dev_vol_type;
-	u32 vol_idx;
 };
 
-struct q5v2audio_analog_ops {
-	void (*speaker_enable)(int en);
-	void (*headset_enable)(int en);
-	void (*handset_enable)(int en);
-	void (*bt_sco_enable)(int en);
-	void (*headset_speaker_enable)(int en);
-	void (*int_mic_enable)(int en);
-	void (*ext_mic_enable)(int en);
-	void (*usb_headset_enable)(int en);
-	void (*fm_headset_enable)(int en);
-	void (*fm_speaker_enable)(int en);
+struct q5v2audio_mi2s_ops {
+	int (*mi2s_clk_enable)(int en);
+	int (*mi2s_data_enable)(int en, u32 direction, u8 sd_line_mask);
 };
 
-void htc_7x30_register_analog_ops(struct q5v2audio_analog_ops *ops);
+void htc_7x30_register_mi2s_ops(struct q5v2audio_mi2s_ops *ops);
 
-struct q5v2audio_icodec_ops {
-	int (*support_aic3254) (void);
-};
-
-void htc_7x30_register_icodec_ops(struct q5v2audio_icodec_ops *ops);
 #endif

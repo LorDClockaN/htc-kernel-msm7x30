@@ -15,6 +15,7 @@
  *
  */
 
+#include <linux/version.h>
 #include <linux/module.h>
 #include <linux/cdev.h>
 #include <linux/fs.h>
@@ -28,6 +29,7 @@
 #include <linux/earlysuspend.h>
 #include <linux/list.h>
 #include <linux/android_pmem.h>
+#include <linux/slab.h>
 #include <asm/atomic.h>
 #include <asm/ioctls.h>
 #include <mach/msm_adsp.h>
@@ -42,7 +44,7 @@
 #include <mach/qdsp5v2/codec_utils.h>
 #include <mach/qdsp5v2/mp3_funcs.h>
 #include <mach/qdsp5v2/pcm_funcs.h>
-#include <mach/debug_audio_mm.h>
+#include <mach/debug_mm.h>
 
 #define ADRV_STATUS_AIO_INTF 0x00000001
 #define ADRV_STATUS_OBUF_GIVEN 0x00000002
@@ -184,11 +186,18 @@ static void lpa_listner(u32 evt_id, union auddev_evt_data *evt_payload,
 		} else
 			audio->source |= (0x1 << evt_payload->routing_id);
 
+		MM_DBG("running = %d, enabled = %d, source = 0x%x\n",
+			audio->running, audio->enabled, audio->source);
 		if (audio->running == 1 && audio->enabled == 1) {
 			audpp_route_stream(audio->dec_id, audio->source);
-			audpp_dsp_set_vol_pan(AUDPP_CMD_CFG_DEV_MIXER_ID_4,
-				&audio->vol_pan,
-				COPP);
+			if (audio->source & AUDPP_MIXER_HLB)
+				audpp_dsp_set_vol_pan(
+					AUDPP_CMD_CFG_DEV_MIXER_ID_4,
+					&audio->vol_pan,
+					COPP);
+			else if (audio->source & AUDPP_MIXER_NONHLB)
+				audpp_dsp_set_vol_pan(
+					audio->dec_id, &audio->vol_pan, POPP);
 			if (audio->device_switch == DEVICE_SWITCH_STATE_READY) {
 				audio->wflush = 1;
 				audio->device_switch =
@@ -249,12 +258,19 @@ static void lpa_listner(u32 evt_id, union auddev_evt_data *evt_payload,
 		break;
 	case AUDDEV_EVT_STREAM_VOL_CHG:
 		audio->vol_pan.volume = evt_payload->session_vol;
-		MM_DBG("\n:AUDDEV_EVT_STREAM_VOL_CHG, stream vol %d\n",
-						audio->vol_pan.volume);
-		if (audio->running)
-			audpp_dsp_set_vol_pan(AUDPP_CMD_CFG_DEV_MIXER_ID_4,
-						&audio->vol_pan,
-						COPP);
+		MM_DBG("\n:AUDDEV_EVT_STREAM_VOL_CHG, stream vol %d\n"
+			"running = %d, enabled = %d, source = 0x%x",
+			audio->vol_pan.volume, audio->running,
+			audio->enabled, audio->source);
+		if (audio->running == 1 && audio->enabled == 1) {
+			if (audio->source & AUDPP_MIXER_HLB)
+				audpp_dsp_set_vol_pan(
+					AUDPP_CMD_CFG_DEV_MIXER_ID_4,
+					&audio->vol_pan, COPP);
+			else if (audio->source & AUDPP_MIXER_NONHLB)
+				audpp_dsp_set_vol_pan(
+					audio->dec_id, &audio->vol_pan, POPP);
+		}
 		break;
 	default:
 		MM_ERR(":ERROR:wrong event\n");
@@ -270,6 +286,7 @@ static int audio_enable(struct audio *audio)
 	if (audio->enabled)
 		return 0;
 
+	audio->dec_state = MSM_AUD_DECODER_STATE_NONE;
 	audio->out_needed = 0;
 
 	if (msm_adsp_enable(audio->audplay)) {
@@ -380,9 +397,16 @@ static void audio_dsp_event(void *private, unsigned id, uint16_t *msg)
 			auddec_dsp_config(audio, 1);
 			audio->out_needed = 0;
 			audio->running = 1;
-			audpp_dsp_set_vol_pan(AUDPP_CMD_CFG_DEV_MIXER_ID_4,
-						&audio->vol_pan,
-						COPP);
+			MM_DBG("source = 0x%x\n", audio->source);
+			if (audio->source & AUDPP_MIXER_HLB)
+				audpp_dsp_set_vol_pan(
+					AUDPP_CMD_CFG_DEV_MIXER_ID_4,
+					&audio->vol_pan,
+					COPP);
+			else if (audio->source & AUDPP_MIXER_NONHLB)
+				audpp_dsp_set_vol_pan(
+					audio->dec_id, &audio->vol_pan,
+					POPP);
 			audpp_dsp_set_eq(audio->dec_id, audio->eq_enable,
 					&audio->eq, POPP);
 		} else if (msg[0] == AUDPP_MSG_ENA_DIS) {
@@ -684,8 +708,12 @@ static long audlpa_process_event_req(struct audio *audio, void __user *arg)
 		usr_evt.event_type = drv_evt->event_type;
 		usr_evt.event_payload = drv_evt->payload;
 		list_add_tail(&drv_evt->list, &audio->free_event_queue);
-	} else
-		rc = -1;
+	} else {
+		MM_ERR("%s: fail to find event\n", __func__);
+		spin_unlock_irqrestore(&audio->event_queue_lock, flags);
+		return -1;
+	}
+
 	spin_unlock_irqrestore(&audio->event_queue_lock, flags);
 
 	if (drv_evt->event_type == AUDIO_EVENT_WRITE_DONE ||
@@ -1057,7 +1085,6 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	switch (cmd) {
 	case AUDIO_START:
 		MM_DBG("AUDIO_START\n");
-		audio->dec_state = MSM_AUD_DECODER_STATE_NONE;
 		rc = audio_enable(audio);
 		if (!rc) {
 			rc = wait_event_interruptible_timeout(audio->wait,
@@ -1265,7 +1292,11 @@ done:
 	return rc;
 }
 
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 34))
+int audlpa_fsync(struct file *file, int datasync)
+#else
 int audlpa_fsync(struct file *file, struct dentry *dentry, int datasync)
+#endif
 {
 	struct audio *audio = file->private_data;
 
@@ -1428,7 +1459,7 @@ static const struct file_operations audlpa_debug_fops = {
 static int audio_open(struct inode *inode, struct file *file)
 {
 	struct audio *audio = NULL;
-	int rc, i, dec_attrb = 0, decid;
+	int rc = 0, i, dec_attrb = 0, decid;
 	struct audlpa_event *e_node = NULL;
 #ifdef CONFIG_DEBUG_FS
 	/* 4 bytes represents decoder number, 1 byte for terminate string */
@@ -1454,6 +1485,11 @@ static int audio_open(struct inode *inode, struct file *file)
 
 	/* Allocate the decoder based on inode minor number*/
 	audio->minor_no = iminor(inode);
+	if (audio->minor_no >= ARRAY_SIZE(audlpa_decs)) {
+		MM_ERR("incorrect minor_no %d\n", audio->minor_no);
+		kfree(audio);
+		goto done;
+	}
 	dec_attrb |= audlpa_decs[audio->minor_no].dec_attrb;
 	audio->codec_ops.ioctl = audlpa_decs[audio->minor_no].ioctl;
 	audio->codec_ops.adec_params = audlpa_decs[audio->minor_no].adec_params;
