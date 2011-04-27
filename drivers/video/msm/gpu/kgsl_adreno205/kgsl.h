@@ -103,8 +103,8 @@ struct kgsl_driver {
 
 	struct kgsl_sharedmem shmem;
 
-	/* Global lilst of open processes */
-	struct list_head process_list;
+	/* Global list of device_private struct one per open file descriptor */
+	struct list_head dev_priv_list;
 	/* Global list of pagetables */
 	struct list_head pagetable_list;
 	/* Mutex for accessing the pagetable list */
@@ -119,10 +119,11 @@ struct kgsl_mem_entry {
 	struct kgsl_memdesc memdesc;
 	struct file *file_ptr;
 	struct list_head list;
+	struct list_head free_list;
 	uint32_t free_timestamp;
 	/* back pointer to private structure under whose context this
 	* allocation is made */
-	struct kgsl_process_private *priv;
+	struct kgsl_file_private *priv;
 };
 
 enum kgsl_status {
@@ -158,10 +159,13 @@ while (1) { \
 #define MMU_CONFIG 1
 #endif
 
-void kgsl_destroy_mem_entry(struct kgsl_mem_entry *entry);
+void kgsl_remove_mem_entry(struct kgsl_mem_entry *entry, bool preserve);
 
 int kgsl_pwrctrl(unsigned int pwrflag);
 void kgsl_timer(unsigned long data);
+uint8_t *kgsl_sharedmem_convertaddr(struct kgsl_device *device,
+       unsigned int pt_base, unsigned int gpuaddr, unsigned int *size);
+
 void kgsl_idle_check(struct work_struct *work);
 int kgsl_idle(struct kgsl_device *device, unsigned int timeout);
 int kgsl_setstate(struct kgsl_device *device, uint32_t flags);
@@ -195,5 +199,15 @@ static inline void kgsl_drm_exit(void)
 {
 }
 #endif
+
+static inline int kgsl_gpuaddr_in_memdesc(const struct kgsl_memdesc *memdesc,
+				unsigned int gpuaddr)
+{
+	if (gpuaddr >= memdesc->gpuaddr && (gpuaddr + sizeof(unsigned int)) <=
+		(memdesc->gpuaddr + memdesc->size)) {
+		return 1;
+	}
+	return 0;
+}
 
 #endif /* _GSL_DRIVER_H */

@@ -841,6 +841,8 @@ void msm_set_i2c_mux(bool gpio, int *gpio_clk, int *gpio_dat, int clk_str, int d
 	}
 }
 
+#define MSM_NAND_PHYS		0xA0A00000
+
 struct flash_platform_data msm_nand_data = {
 	.parts		= NULL,
 	.nr_parts	= 0,

@@ -65,17 +65,11 @@ uint32_t
 kgsl_cmdstream_readtimestamp(struct kgsl_device *device,
 			     enum kgsl_timestamp_type type);
 
-void kgsl_cmdstream_memqueue_cleanup(struct kgsl_device *device,
-				     struct kgsl_process_private *private);
-
-void
+int
 kgsl_cmdstream_freememontimestamp(struct kgsl_device *device,
 				  struct kgsl_mem_entry *entry,
 				  uint32_t timestamp,
 				  enum kgsl_timestamp_type type);
-
-void kgsl_cmdstream_memqueue_cleanup(struct kgsl_device *device,
-				     struct kgsl_process_private *private);
 
 static inline bool timestamp_cmp(unsigned int new, unsigned int old)
 {

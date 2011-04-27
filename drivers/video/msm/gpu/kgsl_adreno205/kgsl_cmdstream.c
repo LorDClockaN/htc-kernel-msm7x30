@@ -28,12 +28,6 @@ int kgsl_cmdstream_init(struct kgsl_device *device)
 
 int kgsl_cmdstream_close(struct kgsl_device *device)
 {
-	struct kgsl_mem_entry *entry, *entry_tmp;
-
-	list_for_each_entry_safe(entry, entry_tmp, &device->memqueue, list) {
-		list_del(&entry->list);
-		kgsl_destroy_mem_entry(entry);
-	}
 	return 0;
 }
 
@@ -62,55 +56,39 @@ void kgsl_cmdstream_memqueue_drain(struct kgsl_device *device)
 {
 	struct kgsl_mem_entry *entry, *entry_tmp;
 	uint32_t ts_processed;
-
-	BUG_ON(!mutex_is_locked(&kgsl_driver.mutex));
+	struct kgsl_ringbuffer *rb = &device->ringbuffer;
 
 	/* get current EOP timestamp */
 	ts_processed = device->ftbl.device_cmdstream_readtimestamp(
 					device,
 					KGSL_TIMESTAMP_RETIRED);
 
-	list_for_each_entry_safe(entry, entry_tmp, &device->memqueue, list) {
+	list_for_each_entry_safe(entry, entry_tmp, &rb->memqueue, free_list) {
+		/*NOTE: this assumes that the free list is sorted by
+		 * timestamp, but I'm not yet sure that it is a valid
+		 * assumption
+		 */
+		if (!timestamp_cmp(ts_processed, entry->free_timestamp))
+			break;
 		KGSL_MEM_DBG("ts_processed %d ts_free %d gpuaddr %x)\n",
 			     ts_processed, entry->free_timestamp,
 			     entry->memdesc.gpuaddr);
-		if (!timestamp_cmp(ts_processed, entry->free_timestamp))
-			break;
-
-		list_del(&entry->list);
-		kgsl_destroy_mem_entry(entry);
+		kgsl_remove_mem_entry(entry, true);
 	}
 }
 
-/* to be called when a process is destroyed, this walks the memqueue and
- * frees any entryies that belong to the dying process
- */
-void kgsl_cmdstream_memqueue_cleanup(struct kgsl_device *device,
-				     struct kgsl_process_private *private)
-{
-	struct kgsl_mem_entry *entry, *entry_tmp;
-
-	BUG_ON(!mutex_is_locked(&kgsl_driver.mutex));
-
-	list_for_each_entry_safe(entry, entry_tmp, &device->memqueue, list) {
-		if (entry->priv == private) {
-			list_del(&entry->list);
-			kgsl_destroy_mem_entry(entry);
-		}
-	}
-}
-
-void
+int
 kgsl_cmdstream_freememontimestamp(struct kgsl_device *device,
 				  struct kgsl_mem_entry *entry,
 				  uint32_t timestamp,
 				  enum kgsl_timestamp_type type)
 {
-	BUG_ON(!mutex_is_locked(&kgsl_driver.mutex));
+	struct kgsl_ringbuffer *rb = &device->ringbuffer;
 	KGSL_MEM_DBG("enter (dev %p gpuaddr %x ts %d)\n",
 		     device, entry->memdesc.gpuaddr, timestamp);
 
+	list_add_tail(&entry->free_list, &rb->memqueue);
 	entry->free_timestamp = timestamp;
 
-	list_add_tail(&entry->list, &device->memqueue);
+	return 0;
 }

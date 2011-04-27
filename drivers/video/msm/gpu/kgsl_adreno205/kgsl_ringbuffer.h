@@ -133,8 +133,8 @@ struct kgsl_rbwatchdog {
 
 #define GSL_RB_MEMPTRS_SCRATCH_COUNT	 8
 struct kgsl_rbmemptrs {
-	int  rptr;
-	int  wptr_poll;
+	volatile int  rptr;
+	volatile int  wptr_poll;
 };
 
 #define GSL_RB_MEMPTRS_RPTR_OFFSET \
@@ -165,6 +165,9 @@ struct kgsl_ringbuffer {
 	unsigned int wptr; /* write pointer offset in dwords from baseaddr */
 	unsigned int rptr; /* read pointer offset in dwords from baseaddr */
 	uint32_t timestamp;
+
+	/* queue of memfrees pending timestamp elapse */
+	struct list_head memqueue;
 
 	struct kgsl_rbwatchdog watchdog;
 
@@ -206,7 +209,7 @@ struct kgsl_ringbuffer {
 #define GSL_RB_CNTL_NO_UPDATE 0x0 /* enable */
 #define GSL_RB_GET_READPTR(rb, data) \
 	do { \
-		*(data) = readl(&(rb)->memptrs->rptr); \
+		*(data) = (rb)->memptrs->rptr; \
 		rmb(); \
 	} while (0)
 #else
@@ -262,5 +265,13 @@ int kgsl_ringbuffer_gettimestampshadow(struct kgsl_device *device,
 void kgsl_ringbuffer_watchdog(struct kgsl_device *device);
 
 void kgsl_cp_intrcallback(struct kgsl_device *device);
+
+static inline int kgsl_ringbuffer_count(struct kgsl_ringbuffer *rb,
+	unsigned int rptr)
+{
+	if (rb->wptr >= rptr)
+		return rb->wptr - rptr;
+	return rb->wptr + rb->sizedwords - rptr;
+}
 
 #endif  /* __GSL_RINGBUFFER_H */

@@ -1467,7 +1467,6 @@ kgsl_drawctxt_create(struct kgsl_device_private *dev_priv,
 	struct kgsl_pagetable *pagetable = dev_priv->process_priv->pagetable;
 	int index;
 	struct tmp_ctx ctx;
-
 	KGSL_CTXT_INFO("pt %p flags %08x\n", pagetable, flags);
 	if (yamato_device->drawctxt_count >= KGSL_CONTEXT_MAX)
 		return -EINVAL;
@@ -1581,6 +1580,7 @@ int kgsl_drawctxt_destroy(struct kgsl_device *device, unsigned int drawctxt_id)
 		drawctxt->flags = CTXT_FLAGS_NOT_IN_USE;
 
 		BUG_ON(yamato_device->drawctxt_count == 0);
+
 		yamato_device->drawctxt_count--;
 		pr_info("[DISP] %s pid %d name %s ctx_id %d total %d\n",
 			 __func__, current->pid, current->comm, drawctxt_id,

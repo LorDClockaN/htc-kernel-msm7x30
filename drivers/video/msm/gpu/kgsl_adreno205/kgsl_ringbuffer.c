@@ -26,6 +26,7 @@
 #include "kgsl_log.h"
 #include "kgsl_pm4types.h"
 #include "kgsl_ringbuffer.h"
+#include "kgsl_postmortem.h"
 #include "kgsl_cmdstream.h"
 
 #include "yamato_reg.h"
@@ -115,27 +116,27 @@ void kgsl_cp_intrcallback(struct kgsl_device *device)
 	if (status & CP_INT_CNTL__T0_PACKET_IN_IB_MASK) {
 		KGSL_CMD_FATAL("ringbuffer TO packet in IB interrupt\n");
 		kgsl_yamato_regwrite(rb->device, REG_CP_INT_CNTL, 0);
-		kgsl_ringbuffer_dump(rb);
+		kgsl_postmortem_dump(device);
 	}
 	if (status & CP_INT_CNTL__OPCODE_ERROR_MASK) {
 		KGSL_CMD_FATAL("ringbuffer opcode error interrupt\n");
 		kgsl_yamato_regwrite(rb->device, REG_CP_INT_CNTL, 0);
-		kgsl_ringbuffer_dump(rb);
+		kgsl_postmortem_dump(device);
 	}
 	if (status & CP_INT_CNTL__PROTECTED_MODE_ERROR_MASK) {
 		KGSL_CMD_FATAL("ringbuffer protected mode error interrupt\n");
 		kgsl_yamato_regwrite(rb->device, REG_CP_INT_CNTL, 0);
-		kgsl_ringbuffer_dump(rb);
+		kgsl_postmortem_dump(device);
 	}
 	if (status & CP_INT_CNTL__RESERVED_BIT_ERROR_MASK) {
 		KGSL_CMD_FATAL("ringbuffer reserved bit error interrupt\n");
 		kgsl_yamato_regwrite(rb->device, REG_CP_INT_CNTL, 0);
-		kgsl_ringbuffer_dump(rb);
+		kgsl_postmortem_dump(device);
 	}
 	if (status & CP_INT_CNTL__IB_ERROR_MASK) {
 		KGSL_CMD_FATAL("ringbuffer IB error interrupt\n");
 		kgsl_yamato_regwrite(rb->device, REG_CP_INT_CNTL, 0);
-		kgsl_ringbuffer_dump(rb);
+		kgsl_postmortem_dump(device);
 	}
 	if (status & CP_INT_CNTL__SW_INT_MASK)
 		KGSL_CMD_DBG("ringbuffer software interrupt\n");
@@ -486,6 +487,8 @@ int kgsl_ringbuffer_start(struct kgsl_ringbuffer *rb)
 	rb->timestamp = 0;
 	GSL_RB_INIT_TIMESTAMP(rb);
 
+	INIT_LIST_HEAD(&rb->memqueue);
+
 	/* clear ME_HALT to start micro engine */
 	kgsl_yamato_regwrite(device, REG_CP_ME_CNTL, 0);
 
@@ -553,6 +556,8 @@ int kgsl_ringbuffer_stop(struct kgsl_ringbuffer *rb)
 
 		/* ME_HALT */
 		kgsl_yamato_regwrite(rb->device, REG_CP_ME_CNTL, 0x10000000);
+
+		kgsl_cmdstream_memqueue_drain(rb->device);
 
 		rb->flags &= ~KGSL_FLAGS_STARTED;
 		kgsl_ringbuffer_dump(rb);
@@ -750,9 +755,7 @@ kgsl_ringbuffer_issueibcmds(struct kgsl_device_private *dev_priv,
 	link[1] = ibaddr;
 	link[2] = sizedwords;
 
-	kgsl_setstate(device,
-		      kgsl_pt_get_flags(device->mmu.hwpagetable,
-					device->id));
+	kgsl_setstate(device, device->mmu.tlb_flags);
 
 	kgsl_drawctxt_switch(yamato_device,
 			&yamato_device->drawctxt[drawctxt_index], flags);
