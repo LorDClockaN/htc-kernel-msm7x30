@@ -34,11 +34,19 @@ struct mdp_device;
 #define MSM_MDP4_MDDI_DMA_SWITCH		(1 << 3)
 #define MSM_MDP_DMA_PACK_ALIGN_LSB		(1 << 4)
 #define MSM_MDP_RGB_PANEL_SELE_REFRESH		(1 << 5)
-#define MSM_MDP_FORCE_UPDATE			(1 << 6)
+#define MSM_MDP_ABL_ENABLE			(1 << 6)
 
 /* mddi type */
 #define MSM_MDP_MDDI_TYPE_I	 0
 #define MSM_MDP_MDDI_TYPE_II	 1
+
+
+/* fb override operations */
+#define MSM_FB_PM_DISABLE				(1<<0)
+
+struct fb_cmap;
+struct mdp_histogram;
+struct gamma_curvy;
 
 struct msm_fb_data {
 	int xres;	/* x resolution in pixels */
@@ -46,6 +54,7 @@ struct msm_fb_data {
 	int width;	/* disply width in mm */
 	int height;	/* display height in mm */
 	unsigned output_format;
+	unsigned overrides;
 };
 
 struct msmfb_callback {
@@ -57,6 +66,7 @@ enum {
 	MSM_MDDI_EMDH_INTERFACE,
 	MSM_EBI2_INTERFACE,
 	MSM_LCDC_INTERFACE,
+	MSM_DTV_INTERFACE,
 	MSM_TV_INTERFACE,
 
 	MSM_MDP_NUM_INTERFACES = MSM_TV_INTERFACE + 1
@@ -99,6 +109,8 @@ struct msm_panel_data {
 	/* change timing on the fly */
 	int (*adjust_timing)(struct msm_panel_data *, struct msm_lcdc_timing *,
 			u32 xres, u32 yres);
+	/* FIXME */
+	int (*recover_vsync)(struct msm_panel_data *);
 	/* from the enum above */
 	unsigned interface_type;
 	/* data to be passed to the fb driver */
@@ -140,6 +152,7 @@ struct msm_mdp_platform_data {
 	unsigned sync_thresh;
 	unsigned sync_start_pos;
 	struct mdp_device *mdp_dev;
+	struct gamma_curvy *abl_gamma_tbl;
 };
 
 struct msm_mddi_client_data {
@@ -152,6 +165,7 @@ struct msm_mddi_client_data {
 			     uint32_t reg, unsigned int nr_bytes);
 	uint32_t (*remote_read)(struct msm_mddi_client_data *, uint32_t reg);
 	void (*auto_hibernate)(struct msm_mddi_client_data *, int);
+	void (*send_powerdown)(struct msm_mddi_client_data *);
 	/* custom data that needs to be passed from the board file to a 
 	 * particular client */
 	void *private_client_data;
@@ -225,6 +239,7 @@ struct mdp_blit_req;
 struct fb_info;
 struct mdp_overlay;
 struct msmfb_overlay_data;
+
 struct mdp_device {
 	struct device dev;
 	void (*dma)(struct mdp_device *mdp, uint32_t addr,
@@ -248,6 +263,16 @@ struct mdp_device {
 	int (*check_output_format)(struct mdp_device *mdp, int bpp);
 	int (*set_output_format)(struct mdp_device *mdp, int bpp);
 	void (*set_panel_size)(struct mdp_device *mdp, int width, int height);
+#if defined (CONFIG_FB_MSM_MDP_ABL)
+	int (*lut_update)(struct mdp_device *mdp, struct fb_info *fb,
+		    struct fb_cmap *cmap);
+	int (*do_histogram)(struct mdp_device *mdp, struct mdp_histogram *hist_in,
+		    struct mdp_histogram *hist_out);
+	int (*start_histogram)(struct mdp_device *mdp, struct fb_info *fb);
+	int (*stop_histogram)(struct mdp_device *mdp, struct fb_info *fb);
+	int (*get_gamma_curvy)(struct mdp_device *mdp, struct gamma_curvy *gc);
+	struct gamma_curvy *abl_gamma_tbl;
+#endif
 	unsigned color_format;
 	unsigned overrides;
 	uint32_t width;		/*panel width*/
@@ -256,6 +281,8 @@ struct mdp_device {
 
 struct class_interface;
 int register_mdp_client(struct class_interface *class_intf);
+
+int register_dtv_client(struct class_interface *class_intf);
 
 /**** private client data structs go below this line ***/
 
@@ -272,6 +299,7 @@ struct panel_data {
 	int min_level;
 	/* default_br used in turn on backlight, must sync with setting in user space */
 	int default_br;
+	int vsync_gpio;
 	int (*shrink_br)(int brightness);
 	int (*change_cabcmode)(struct msm_mddi_client_data *client_data,
 			int mode, u8 dimming);
@@ -338,6 +366,10 @@ struct msm_fb_info {
 
 extern int msmfb_get_var(struct msm_fb_info *tmp);
 extern int msmfb_get_fb_area(void);
+#if defined (CONFIG_FB_MSM_MDP_ABL)
+extern struct mdp_histogram mdp_hist;
+extern struct completion mdp_hist_comp;
+#endif
 #endif
 
 #endif

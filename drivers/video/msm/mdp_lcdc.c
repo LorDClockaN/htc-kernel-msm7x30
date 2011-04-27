@@ -28,6 +28,7 @@
 #include <asm/mach-types.h>
 #include <linux/msm_mdp.h>
 #include <mach/msm_fb.h>
+#include <mach/debug_display.h>
 
 #include "mdp_hw.h"
 #ifdef CONFIG_MSM_MDP40
@@ -111,7 +112,7 @@ static int icm_thread(void *data)
 				clk_disable(lcdc->pclk);
 				clk_disable(lcdc->mdp_clk);
 				panel_icm->clock_enabled = false;
-				printk(KERN_DEBUG "EnterICM: enter ICM MODE done!!!\n");
+				PR_DISP_DEBUG("EnterICM: enter ICM MODE done!!!\n");
 			}
 		} else {/* get update event, no timeout */
 			ICM_DBG("Leave ICM: icm_mode=%d icm_doable=%d \n", panel_icm->icm_mode, panel_icm->icm_doable);
@@ -126,7 +127,7 @@ static int icm_thread(void *data)
 					panel_ops->refresh_disable(panel_ops);
 
 				panel_icm->icm_mode = false;
-				printk(KERN_DEBUG "LeaveICM: leave ICM MODE done !!!\n");
+				PR_DISP_DEBUG("LeaveICM: leave ICM MODE done !!!\n");
 			}
 			spin_lock_irqsave(&panel_icm->lock, irq_flags);
 			panel_icm->panel_update = 0;
@@ -156,7 +157,7 @@ static void icm_force_leave(void)
 			panel_ops->refresh_disable(panel_ops);
 		panel_icm->icm_mode = false;
 		panel_icm->icm_doable = true;
-                pr_info("ForceLeaveICM: leave ICM MODE done !!!\n");
+                PR_DISP_INFO("ForceLeaveICM: leave ICM MODE done !!!\n");
 	}
 	spin_lock_irqsave(&panel_icm->lock, irq_flags);
         panel_icm->panel_update = 0;
@@ -181,7 +182,7 @@ static int icm_init(struct mdp_lcdc_info *lcdc)
 	th_display = kthread_run(icm_thread, lcdc, "panel-enterIdle");
 	if (IS_ERR(th_display)) {
 		ret = PTR_ERR(th_display);
-		pr_err("%s: panel_icm_thread  create fail:%d!!!\n", __func__, ret);
+		PR_DISP_ERR("%s: panel_icm_thread  create fail:%d!!!\n", __func__, ret);
 		goto	error_create_thread;
 	}
 	return ret;
@@ -190,13 +191,30 @@ error_create_thread:
 	return ret;
 }
 #endif
+#ifdef CONFIG_FB_MSM_WRITE_BACK
+void mdp4_lcdc_overlay_blt(ulong addr)
+{
+       unsigned long flag;
+
+       spin_lock_irqsave(&mdp_spin_lock, flag);
+       lcdc_pipe->blt_addr = addr;
+       lcdc_pipe->blt_cnt = 0;
+       spin_unlock_irqrestore(&mdp_spin_lock, flag);
+       mdp_writel(lcdc_pipe->mdp,0x0,0xc0000);
+       mdelay(100);
+       mdp4_overlayproc_cfg(lcdc_pipe);
+       mdp4_overlay_dmap_xy(lcdc_pipe);
+       mdelay(100);
+       mdp_writel(lcdc_pipe->mdp,0x1,0xc0000);
+}
+#endif
 
 static int lcdc_unblank(struct msm_panel_data *fb_panel)
 {
 	struct mdp_lcdc_info *lcdc = panel_to_lcdc(fb_panel);
 	struct msm_lcdc_panel_ops *panel_ops = lcdc->pdata->panel_ops;
 
-	pr_info("%s: ()\n", __func__);
+	PR_DISP_INFO("%s: ()\n", __func__);
 
 	if (panel_ops->unblank)
 		panel_ops->unblank(panel_ops);
@@ -209,7 +227,7 @@ static int lcdc_blank(struct msm_panel_data *fb_panel)
 	struct mdp_lcdc_info *lcdc = panel_to_lcdc(fb_panel);
 	struct msm_lcdc_panel_ops *panel_ops = lcdc->pdata->panel_ops;
 
-	pr_info("%s: ()\n", __func__);
+	PR_DISP_INFO("%s: ()\n", __func__);
 
 	if (panel_ops->blank)
 		panel_ops->blank(panel_ops);
@@ -222,7 +240,7 @@ static int lcdc_shutdown(struct msm_panel_data *fb_panel)
         struct mdp_lcdc_info *lcdc = panel_to_lcdc(fb_panel);
         struct msm_lcdc_panel_ops *panel_ops = lcdc->pdata->panel_ops;
 
-        pr_info("%s: ()\n", __func__);
+        PR_DISP_INFO("%s: ()\n", __func__);
 
 	if (panel_ops->shutdown)
 	        panel_ops->shutdown(panel_ops);
@@ -235,7 +253,7 @@ static int lcdc_suspend(struct msm_panel_data *fb_panel)
 	struct mdp_lcdc_info *lcdc = panel_to_lcdc(fb_panel);
 	struct msm_lcdc_panel_ops *panel_ops = lcdc->pdata->panel_ops;
 
-	pr_info("%s: suspending\n", __func__);
+	PR_DISP_INFO("%s: suspending\n", __func__);
 
 #if defined(CONFIG_ARCH_MSM7227)
 	writel(0x0, LCDC_MUX_CTL);
@@ -246,7 +264,7 @@ static int lcdc_suspend(struct msm_panel_data *fb_panel)
 		mutex_lock(&panel_icm->icm_lock);
 		panel_icm->icm_doable = false;
 		panel_icm->icm_suspend = true;
-		pr_info("[ICM %s]: icm mode=%d, clock_enabled=%d\n", __func__, panel_icm->icm_mode, panel_icm->clock_enabled);
+		PR_DISP_INFO("[ICM %s]: icm mode=%d, clock_enabled=%d\n", __func__, panel_icm->icm_mode, panel_icm->clock_enabled);
 		if (panel_icm->icm_mode == true && panel_icm->clock_enabled == false) {
 			if (panel_ops->refresh_disable)
 				panel_ops->refresh_disable(panel_ops);
@@ -282,12 +300,13 @@ static int lcdc_resume(struct msm_panel_data *fb_panel)
 	struct mdp_lcdc_info *lcdc = panel_to_lcdc(fb_panel);
 	struct msm_lcdc_panel_ops *panel_ops = lcdc->pdata->panel_ops;
 
-	pr_info("%s: resuming\n", __func__);
+	PR_DISP_INFO("%s: resuming\n", __func__);
 
 	if (panel_ops->init) {
 		if (panel_ops->init(panel_ops) < 0)
-			printk(KERN_ERR "LCD init fail!\n");
+			PR_DISP_ERR("LCD init fail!\n");
 	}
+
 	clk_enable(lcdc->mdp_clk);
 	clk_enable(lcdc->pclk);
 	clk_enable(lcdc->pad_pclk);
@@ -347,7 +366,6 @@ static int lcdc_hw_init(struct mdp_lcdc_info *lcdc)
 	mdp_writel(lcdc->mdp, (((fb_panel->fb_data->yres & 0x7ff) << 16) |
 			       (fb_panel->fb_data->xres & 0x7ff)),
 		   MDP_DMA_P_SIZE);
-
 	mdp_writel(lcdc->mdp, 0, MDP_DMA_P_OUT_XY);
 
 	dma_cfg = mdp_readl(lcdc->mdp, MDP_DMA_P_CONFIG);
@@ -382,7 +400,7 @@ static void lcdc_wait_vsync(struct msm_panel_data *panel)
 
 	ret = wait_event_timeout(lcdc->vsync_waitq, lcdc->got_vsync, HZ / 2);
 	if (!ret && !lcdc->got_vsync)
-		pr_err("%s: timeout waiting for VSYNC\n", __func__);
+		PR_DISP_ERR("%s: timeout waiting for VSYNC\n", __func__);
 	lcdc->got_vsync = 0;
 }
 
@@ -484,6 +502,7 @@ static void precompute_timing_parms(struct mdp_lcdc_info *lcdc)
 	unsigned int display_vstart;
 	unsigned int display_vend;
 
+//#if !defined(CONFIG_MACH_FLYER_SCREEN_ROTATION)
 	hsync_period = (timing->hsync_pulse_width + timing->hsync_back_porch +
 			fb_data->xres + timing->hsync_front_porch);
 	hsync_start_x = (timing->hsync_pulse_width + timing->hsync_back_porch);
@@ -531,7 +550,7 @@ static int mdp_lcdc_probe(struct platform_device *pdev)
 #endif
 
 	if (!pdata) {
-		pr_err("%s: no LCDC platform data found\n", __func__);
+		PR_DISP_ERR("%s: no LCDC platform data found\n", __func__);
 		return -EINVAL;
 	}
 
@@ -542,21 +561,21 @@ static int mdp_lcdc_probe(struct platform_device *pdev)
 	/* We don't actually own the clocks, the mdp does. */
 	lcdc->mdp_clk = clk_get(mdp_dev->dev.parent, "mdp_clk");
 	if (IS_ERR(lcdc->mdp_clk)) {
-		pr_err("%s: failed to get mdp_clk\n", __func__);
+		PR_DISP_ERR("%s: failed to get mdp_clk\n", __func__);
 		ret = PTR_ERR(lcdc->mdp_clk);
 		goto err_get_mdp_clk;
 	}
 
 	lcdc->pclk = clk_get(mdp_dev->dev.parent, "lcdc_pclk_clk");
 	if (IS_ERR(lcdc->pclk)) {
-		pr_err("%s: failed to get lcdc_pclk\n", __func__);
+		PR_DISP_ERR("%s: failed to get lcdc_pclk\n", __func__);
 		ret = PTR_ERR(lcdc->pclk);
 		goto err_get_pclk;
 	}
 
 	lcdc->pad_pclk = clk_get(mdp_dev->dev.parent, "lcdc_pad_pclk_clk");
 	if (IS_ERR(lcdc->pad_pclk)) {
-		pr_err("%s: failed to get lcdc_pad_pclk\n", __func__);
+		PR_DISP_ERR("%s: failed to get lcdc_pad_pclk\n", __func__);
 		ret = PTR_ERR(lcdc->pad_pclk);
 		goto err_get_pad_pclk;
 	}
@@ -573,10 +592,11 @@ static int mdp_lcdc_probe(struct platform_device *pdev)
 	mdp_out_if_register(mdp_dev, MSM_LCDC_INTERFACE, lcdc, MDP_DMA_P_DONE,
 			    lcdc_dma_start);
 #endif
+	lcdc->mdp = container_of(mdp_dev, struct mdp_info, mdp_dev);
 	precompute_timing_parms(lcdc);
 
 	lcdc->fb_start = pdata->fb_resource->start;
-	lcdc->mdp = container_of(mdp_dev, struct mdp_info, mdp_dev);
+	//lcdc->mdp = container_of(mdp_dev, struct mdp_info, mdp_dev);
 	if(lcdc->mdp->mdp_dev.color_format)
 		lcdc->color_format = lcdc->mdp->mdp_dev.color_format;
 	else
@@ -585,10 +605,11 @@ static int mdp_lcdc_probe(struct platform_device *pdev)
 #ifdef CONFIG_MSM_MDP40
 	if (lcdc_pipe == NULL) {
 		ptype = mdp4_overlay_format2type(MDP_RGB_565);
-		pipe = mdp4_overlay_pipe_alloc(ptype, 0);
+		pipe = mdp4_overlay_pipe_alloc(ptype, false);
 		if (!pipe)
 			goto err_mdp4_overlay_pipe_alloc;
 		pipe->mixer_stage  = MDP4_MIXER_STAGE_BASE;
+		pipe->pipe_used = 1;
 		pipe->mixer_num  = MDP4_MIXER0;
 		pipe->src_format = MDP_RGB_565;
 		mdp4_overlay_format2pipe(pipe);
@@ -606,6 +627,7 @@ static int mdp_lcdc_probe(struct platform_device *pdev)
 	pipe->src_y = 0;
 	pipe->src_x = 0;
 	pipe->srcp0_addr = (uint32_t) lcdc->fb_start;
+
 	pipe->srcp0_ystride = pdata->fb_data->xres * 2;
 
 	mdp4_overlay_rgb_setup(pipe);
@@ -624,7 +646,7 @@ static int mdp_lcdc_probe(struct platform_device *pdev)
 	lcdc->fb_panel_data.shutdown = lcdc_shutdown;
 	ret = lcdc_hw_init(lcdc);
 	if (ret) {
-		pr_err("%s: Cannot initialize the mdp_lcdc\n", __func__);
+		PR_DISP_ERR("%s: Cannot initialize the mdp_lcdc\n", __func__);
 		goto err_hw_init;
 	}
 	lcdc->fb_pdev.name = "msm_panel";
@@ -636,16 +658,16 @@ static int mdp_lcdc_probe(struct platform_device *pdev)
 
 	ret = platform_device_register(&lcdc->fb_pdev);
 	if (ret) {
-		pr_err("%s: Cannot register msm_panel pdev\n", __func__);
+		PR_DISP_ERR("%s: Cannot register msm_panel pdev\n", __func__);
 		goto err_plat_dev_reg;
 	}
 
-	pr_info("%s: initialized\n", __func__);
+	PR_DISP_INFO("%s: initialized\n", __func__);
 #ifdef CONFIG_PANEL_SELF_REFRESH
 	if (lcdc->mdp->mdp_dev.overrides & MSM_MDP_RGB_PANEL_SELE_REFRESH) {
 		ret = icm_init(lcdc);
 		if (ret) {
-			pr_err("%s: Cannot init dispaly selfrefresh \n", __func__);
+			PR_DISP_ERR("%s: Cannot init dispaly selfrefresh \n", __func__);
 			goto err_plat_dev_reg;
 		}
 	}
