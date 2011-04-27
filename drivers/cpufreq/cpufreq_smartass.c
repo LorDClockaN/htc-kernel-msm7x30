@@ -69,7 +69,7 @@ static unsigned long down_rate_us;
  * When ramping up frequency with no idle cycles jump to at least this frequency.
  * Zero disables. Set a very high value to jump to policy max freqeuncy.
  */
-#define DEFAULT_UP_MIN_FREQ 460800
+#define DEFAULT_UP_MIN_FREQ 614400
 static unsigned int up_min_freq;
 
 /*
@@ -109,7 +109,7 @@ static unsigned long max_cpu_load;
 /*
  * CPU freq will be decreased if measured load < min_cpu_load;
  */
-#define DEFAULT_MIN_CPU_LOAD 45
+#define DEFAULT_MIN_CPU_LOAD 40
 static unsigned long min_cpu_load;
 
 
