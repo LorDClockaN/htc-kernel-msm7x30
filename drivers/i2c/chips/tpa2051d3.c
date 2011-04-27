@@ -83,7 +83,8 @@ static int tpa2051_i2c_write(char *txData, int length)
 		pass = 0;
 		while (retry--) {
 			if (i2c_transfer(this_client->adapter, msg, 1) < 0) {
-				pr_err("%s: I2C transfer error %d retry %d\n", __func__, i, retry);
+				pr_err("%s: I2C transfer error %d retry %d\n",
+						__func__, i, retry);
 				msleep(20);
 			} else {
 				pass = 1;
@@ -207,8 +208,8 @@ int update_amp_parameter(int mode)
 		memcpy(RING_AMP_ON, config_data + mode * MODE_CMD_LEM + 2,
 				sizeof(RING_AMP_ON));
 	else if (*(config_data + mode * MODE_CMD_LEM + 1) == HANDSET_OUTPUT)
-		memcpy(HEADSET_AMP_ON, config_data + mode * MODE_CMD_LEM + 2,
-				sizeof(HEADSET_AMP_ON));
+		memcpy(HANDSET_AMP_ON, config_data + mode * MODE_CMD_LEM + 2,
+				sizeof(HANDSET_AMP_ON));
 	else {
 		pr_err("wrong mode id %d\n", mode);
 		return -EINVAL;
@@ -227,18 +228,21 @@ tpa2051d3_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 	unsigned char tmp[7];
 	unsigned char reg_idx[1] = {0x00};
 	unsigned char spk_cfg[8];
-        struct tpa2051_config_data cfg;
+	struct tpa2051_config_data cfg;
 
 	switch (cmd) {
 	case TPA2051_SET_CONFIG:
 		if (copy_from_user(spk_cfg, argp, sizeof(spk_cfg)))
 			return -EFAULT;
 		if (spk_cfg[0] == SPKR_OUTPUT)
-			memcpy(SPK_AMP_ON, spk_cfg + 1, sizeof(SPK_AMP_ON));
+			memcpy(SPK_AMP_ON, spk_cfg + 1,
+					sizeof(SPK_AMP_ON));
 		else if (spk_cfg[0] == HEADSET_OUTPUT)
-			memcpy(HEADSET_AMP_ON, spk_cfg + 1, sizeof(HEADSET_AMP_ON));
+			memcpy(HEADSET_AMP_ON, spk_cfg + 1,
+					sizeof(HEADSET_AMP_ON));
 		else if (spk_cfg[0] == DUAL_OUTPUT)
-			memcpy(RING_AMP_ON, spk_cfg + 1, sizeof(RING_AMP_ON));
+			memcpy(RING_AMP_ON, spk_cfg + 1,
+					sizeof(RING_AMP_ON));
 		else
 			return -EINVAL;
 		break;
@@ -246,8 +250,11 @@ tpa2051d3_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 		mutex_lock(&spk_amp_lock);
 		if (!last_spkamp_state) {
 			tpa2051pwr.output_value = 1;
-			rc = pm8058_gpio_config(pdata->gpio_tpa2051_spk_en, &tpa2051pwr);
-			mdelay(30); /* According to tpa2051d3 Spec */
+			rc = pm8058_gpio_config(pdata->gpio_tpa2051_spk_en,
+							&tpa2051pwr);
+
+			/* According to tpa2051d3 Spec */
+			mdelay(30);
 		}
 		rc = tpa2051_i2c_write(reg_idx, sizeof(reg_idx));
 		if (rc < 0)
@@ -262,7 +269,8 @@ tpa2051d3_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 err:
 		if (!last_spkamp_state) {
 			tpa2051pwr.output_value = 0;
-			pm8058_gpio_config(pdata->gpio_tpa2051_spk_en, &tpa2051pwr);
+			pm8058_gpio_config(pdata->gpio_tpa2051_spk_en,
+						&tpa2051pwr);
 		}
 		mutex_unlock(&spk_amp_lock);
 		break;
@@ -286,7 +294,8 @@ err:
 		}
 
 		if (cfg.data_len <= 0) {
-			pr_err("%s: invalid data length %d\n", __func__, cfg.data_len);
+			pr_err("%s: invalid data length %d\n",
+					__func__, cfg.data_len);
 			return -EINVAL;
 		}
 
@@ -364,6 +373,13 @@ int tpa2051d3_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		pr_err("%s: tpa2051d3_device register failed\n", __func__);
 		goto err_free_gpio_all;
 	}
+
+	if (pdata->spkr_cmd[1] != 0)  /* path id != 0 */
+		memcpy(SPK_AMP_ON, pdata->spkr_cmd, sizeof(SPK_AMP_ON));
+	if (pdata->hsed_cmd[1] != 0)
+		memcpy(HEADSET_AMP_ON, pdata->hsed_cmd, sizeof(HEADSET_AMP_ON));
+	if (pdata->rece_cmd[1] != 0)
+		memcpy(HANDSET_AMP_ON, pdata->rece_cmd, sizeof(HANDSET_AMP_ON));
 
 	return 0;
 
