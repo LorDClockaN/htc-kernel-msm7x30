@@ -373,9 +373,9 @@ static void mdp4_scale_setup(struct mdp4_overlay_pipe *pipe)
 
 		if (pipe->pipe_num >= OVERLAY_PIPE_VG1) {
 			if (pipe->dst_h <= (pipe->src_h / 4))
-				pipe->op_mode |= MDP4_OP_SCALEY_MN_PHASE;
+				pipe->op_mode |= MDP4_OP_SCALEX_MN_PHASE;
 			else
-				pipe->op_mode |= MDP4_OP_SCALEY_FIR;
+				pipe->op_mode |= MDP4_OP_SCALEX_FIR;
 		}
 
 		pipe->phasey_step = mdp4_scale_phase_step(29,
@@ -419,7 +419,7 @@ void mdp4_overlay_rgb_setup(struct mdp4_overlay_pipe *pipe)
 	pattern = mdp4_overlay_unpack_pattern(pipe);
 
 #ifdef MDP4_IGC_LUT_ENABLE
-	pipe->op_mode = MDP4_OP_IGC_LUT_EN;
+	pipe->op_mode |= MDP4_OP_IGC_LUT_EN;
 #else
 	pipe->op_mode = 0;
 #endif
@@ -481,9 +481,10 @@ void mdp4_overlay_vg_setup(struct mdp4_overlay_pipe *pipe)
 	pattern = mdp4_overlay_unpack_pattern(pipe);
 
 #ifdef MDP4_IGC_LUT_ENABLE
-	pipe->op_mode = MDP4_OP_IGC_LUT_EN;
+	pipe->op_mode = (MDP4_OP_CSC_EN | MDP4_OP_SRC_DATA_YCBCR |
+		MDP4_OP_IGC_LUT_EN);
 #else
-	pipe->op_mode = 0;
+	pipe->op_mode = (MDP4_OP_CSC_EN | MDP4_OP_SRC_DATA_YCBCR);
 #endif
 
 	/* not RGB use VG pipe */
@@ -1341,12 +1342,14 @@ static int mdp4_overlay_req2pipe(struct mdp_overlay *req, int mixer,
 		return -ERANGE;
 	}
 
+#if 0
 	//Current mdp only support the maximum 1/4 downscaling
 	if(req->src_rect.w > req->dst_rect.w * 4 || req->src_rect.h > req->dst_rect.h * 4) {
 		PR_DISP_ERR("mdp_overlay_req2pipe: Don't support this kind of downscalig srcw=%d srch=%d dstw=%d dsth=%d\n",
 		req->src_rect.w, req->src_rect.h, req->dst_rect.w, req->dst_rect.h);
 		return -EINVAL;
 	}
+#endif
 
 	ptype = mdp4_overlay_format2type(req->src.format);
 	if (ptype < 0)
