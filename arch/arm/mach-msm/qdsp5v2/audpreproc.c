@@ -326,6 +326,7 @@ EXPORT_SYMBOL(audpreproc_unregister_event_callback);
 /* enc_type = supported encode format *
  * like pcm, aac, sbc, evrc, qcelp, amrnb etc ... *
  */
+#if 0
 int audpreproc_aenc_alloc(unsigned enc_type, const char **module_name,
 		     unsigned *queue_ids)
 {
@@ -377,6 +378,43 @@ int audpreproc_aenc_alloc(unsigned enc_type, const char **module_name,
 	mutex_unlock(audpreproc->lock);
 	return encid;
 }
+#else
+int audpreproc_aenc_alloc(unsigned enc_type, const char **module_name,
+                     unsigned *queue_ids)
+{
+        struct audpreproc_state *audpreproc = &the_audpreproc_state;
+        int encid = -1, idx;
+        static int wakelock_init;
+
+        mutex_lock(audpreproc->lock);
+        for (idx = (msm_enc_database.num_enc - 1);
+                idx >= 0; idx--) {
+                /* encoder free and supports the format */
+                if ((!(audpreproc->enc_inuse & (1 << idx))) &&
+                        (msm_enc_database.enc_info_list[idx].enc_formats &
+                                (1 << enc_type))) {
+                                break;
+                }
+        }
+
+        if (idx >= 0) {
+                audpreproc->enc_inuse |= (1 << idx);
+                *module_name =
+                    msm_enc_database.enc_info_list[idx].module_name;
+                *queue_ids =
+                    msm_enc_database.enc_info_list[idx].module_queueids;
+                encid = msm_enc_database.enc_info_list[idx].module_encid;
+        }
+
+        if (!wakelock_init) {
+                wake_lock_init(&audpre_wake_lock, WAKE_LOCK_SUSPEND, "audpre");
+                wakelock_init = 1;
+        }
+
+        mutex_unlock(audpreproc->lock);
+        return encid;
+}
+#endif
 EXPORT_SYMBOL(audpreproc_aenc_alloc);
 
 void audpreproc_aenc_free(int enc_id)
