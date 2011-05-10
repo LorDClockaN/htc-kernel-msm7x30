@@ -22,6 +22,7 @@
 #include <linux/kthread.h>
 #include <linux/mutex.h>
 #include <linux/freezer.h>
+#include <linux/usb/quirks.h>
 
 #include <asm/uaccess.h>
 #include <asm/byteorder.h>
@@ -1423,11 +1424,11 @@ void usb_set_device_state(struct usb_device *udev,
 					|| new_state == USB_STATE_SUSPENDED)
 				;	/* No change to wakeup settings */
 			else if (new_state == USB_STATE_CONFIGURED)
-				device_init_wakeup(&udev->dev,
+				device_set_wakeup_capable(&udev->dev,
 					(udev->actconfig->desc.bmAttributes
 					 & USB_CONFIG_ATT_WAKEUP));
 			else
-				device_init_wakeup(&udev->dev, 0);
+				device_set_wakeup_capable(&udev->dev, 0);
 		}
 		if (udev->state == USB_STATE_SUSPENDED &&
 			new_state != USB_STATE_SUSPENDED)
@@ -1774,11 +1775,17 @@ int usb_new_device(struct usb_device *udev)
 {
 	int err;
 
-	/* Increment the parent's count of unsuspended children */
-	if (udev->parent)
+	if (udev->parent) {
+		/* Increment the parent's count of unsuspended children */
 		usb_autoresume_device(udev->parent);
 
-	usb_detect_quirks(udev);
+		/* Initialize non-root-hub device wakeup to disabled;
+		 * device (un)configuration controls wakeup capable
+		 * sysfs power/wakeup controls wakeup enabled/disabled
+		 */
+		device_init_wakeup(&udev->dev, 0);
+	}
+
 	err = usb_enumerate_device(udev);	/* Read descriptors */
 	if (err < 0)
 		goto fail;
@@ -3081,6 +3088,10 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
 		if (status < 0)
 			goto loop;
 
+		usb_detect_quirks(udev);
+		if (udev->quirks & USB_QUIRK_DELAY_INIT)
+			msleep(1000);
+
 		/* consecutive bus-powered hubs aren't reliable; they can
 		 * violate the voltage drop budget.  if the new child has
 		 * a "powered" LED, users should notice we didn't enable it
@@ -3789,3 +3800,4 @@ void usb_queue_reset_device(struct usb_interface *iface)
 	schedule_work(&iface->reset_ws);
 }
 EXPORT_SYMBOL_GPL(usb_queue_reset_device);
+

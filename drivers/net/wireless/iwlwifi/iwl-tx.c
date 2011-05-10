@@ -1070,6 +1070,14 @@ int iwl_tx_queue_reclaim(struct iwl_priv *priv, int txq_id, int index)
 	     q->read_ptr = iwl_queue_inc_wrap(q->read_ptr, q->n_bd)) {
 
 		tx_info = &txq->txb[txq->q.read_ptr];
+
+		if (WARN_ON_ONCE(tx_info->skb == NULL))
+			continue;
+
+		hdr = (struct ieee80211_hdr *)tx_info->skb[0]->data;
+		if (ieee80211_is_data_qos(hdr->frame_control))
+			nfreed++;
+
 		ieee80211_tx_status_irqsafe(priv->hw, tx_info->skb[0]);
 		tx_info->skb[0] = NULL;
 
@@ -1527,3 +1535,4 @@ const char *iwl_get_tx_fail_reason(u32 status)
 }
 EXPORT_SYMBOL(iwl_get_tx_fail_reason);
 #endif /* CONFIG_IWLWIFI_DEBUG */
+
