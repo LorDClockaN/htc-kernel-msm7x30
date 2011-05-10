@@ -69,7 +69,7 @@ static unsigned long down_rate_us;
  * When ramping up frequency with no idle cycles jump to at least this frequency.
  * Zero disables. Set a very high value to jump to policy max freqeuncy.
  */
-#define DEFAULT_UP_MIN_FREQ 614400
+#define DEFAULT_UP_MIN_FREQ 998400
 static unsigned int up_min_freq;
 
 /*
@@ -623,3 +623,4 @@ module_exit(cpufreq_smartass_exit);
 MODULE_AUTHOR ("Erasmux");
 MODULE_DESCRIPTION ("'cpufreq_smartass' - A smart cpufreq governor");
 MODULE_LICENSE ("GPL");
+
